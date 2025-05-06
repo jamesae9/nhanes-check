@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NHANES Manuscript Checker (Python)</title>
+  
+  <!-- Document processing libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.19/mammoth.browser.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  
+  <!-- Pyodide - Python in the browser -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+  
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="css/styles.css">
+  
+  <!-- Fallback styles in case the CSS file doesn't load -->
+  <style>
+    /* Core styles to ensure functionality if external CSS fails to load */
+    .hidden { display: none; }
+    .pyodide-loading {
+      text-align: center;
+      padding: 20px;
+      font-weight: bold;
+      color: #3498db;
+    }
+    button:disabled {
+      background-color: #95a5a6;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>NHANES Manuscript Checker (Python Version)</h1>
+    
+    <!-- Pyodide loading indicator (shown during initialization) -->
+    <div id="pyodideLoading" class="pyodide-loading">
+      <div>Loading Python environment... Please wait.</div>
+      <div class="loading-indicator">This may take a moment on first load.</div>
+      <div id="loadingProgress">Initializing...</div>
+    </div>
+    
+    <!-- Main app content (hidden until Python is ready) -->
+    <div id="appContent" class="hidden">
+      <div class="upload-section">
+        <h2>Check Manuscript</h2>
+        <p>Paste manuscript text or upload a file below:</p>
+        
+        <textarea id="manuscriptText" rows="10" placeholder="Paste manuscript text here..."></textarea>
+        
+        <div class="file-upload">
+          <label for="manuscriptFile">Or upload a file:</label>
+          <input type="file" id="manuscriptFile" accept=".txt,.docx,.pdf">
+        </div>
+        
+        <div class="button-container">
+          <button id="checkButton" disabled>Check Manuscript</button>
+          <button id="clearButton">Clear</button>
+        </div>
+      </div>
+      
+      <div class="results-section hidden" id="results">
+        <h2>Manuscript Check Results</h2>
+        <div id="resultsContent"></div>
+      </div>
+    </div>
+    
+    <!-- Footer with info -->
+    <footer class="footer">
+      <p>NHANES Manuscript Checker (Python/Pyodide Version)</p>
+    </footer>
+  </div>
+
+  <!-- JavaScript bridge for Python-JS communication -->
+  <script src="js/bridge.js"></script>
+  
+  <!-- Pyodide loader script -->
+  <script src="js/pyodide-loader.js"></script>
+  
+  <!-- Fallback error handler if scripts fail to load -->
+  <script>
+    window.addEventListener('error', function(e) {
+      // Only handle script loading errors
+      if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
+        const loadingElem = document.getElementById('pyodideLoading');
+        if (loadingElem) {
+          loadingElem.innerHTML = `
+            <div style="color: #dc3545; font-weight: bold;">Error loading resources</div>
+            <div>Failed to load: ${e.target.src || e.target.href}</div>
+            <div>Please check your internet connection or try again later.</div>
+          `;
+        }
+      }
+    }, true);
+    
+    // Update loading message with status
+    function updateLoadingStatus(message) {
+      const progressElem = document.getElementById('loadingProgress');
+      if (progressElem) {
+        progressElem.textContent = message;
+      }
+    }
+    
+    // Expose to other scripts
+    window.updateLoadingStatus = updateLoadingStatus;
+  </script>
+</body>
+</html>
