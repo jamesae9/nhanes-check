@@ -999,11 +999,13 @@ async def handle_file_upload(event):
     document.getElementById('resultsContent').innerHTML = ''
     
     # Show loading
-    window.NHANESBridge.showUILoading(f"Loading file: {file.name}...")
+    window.NHANESBridge.showUILoading(f"Loading file: {str(file.name)}...")
     
     try:
         # Process file based on extension
-        file_extension = file.name.split('.')[-1].lower()
+        filename = str(file.name)
+        extension_parts = filename.split('.')
+        file_extension = extension_parts[-1].lower() if len(extension_parts) > 1 else ""
         
         if file_extension == 'txt':
             content = await read_text_file(file)
@@ -1012,7 +1014,7 @@ async def handle_file_upload(event):
         elif file_extension == 'pdf':
             # Create progress callback
             def update_progress(current, total):
-                window.NHANESBridge.showUILoading(f"Loading PDF: {file.name} ({current}/{total} pages)...")
+                window.NHANESBridge.showUILoading(f"Loading PDF: {filename} ({current}/{total} pages)...")
             
             progress_proxy = create_proxy(update_progress)
             content = await read_pdf_file(file, progress_proxy)
