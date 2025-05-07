@@ -49,6 +49,7 @@
       border-radius: 4px;
       font-size: 14px;
       font-family: inherit;
+      box-sizing: border-box;
     }
     .button-container {
       margin: 20px 0;
@@ -132,32 +133,26 @@
   <div class="container">
     <h1>NHANES Manuscript Checker (Python)</h1>
     
-    <!-- Pyodide loading indicator -->
     <div id="pyodideLoading" class="pyodide-loading">
       <div>Loading Python environment... Please wait.</div>
       <div class="loading-indicator">This may take a moment on first load.</div>
       <div id="loadingProgress">Initializing...</div>
     </div>
     
-    <!-- Main app content (hidden until Python is ready) -->
     <div id="appContent" class="hidden">
       <div class="upload-section">
         <h2>Check Manuscript</h2>
         <p>Paste manuscript text or upload a file below:</p>
-        
         <textarea id="manuscriptText" rows="10" placeholder="Paste manuscript text here..."></textarea>
-        
         <div class="file-upload">
           <label for="manuscriptFile">Or upload a file:</label>
           <input type="file" id="manuscriptFile" accept=".txt,.docx,.pdf">
         </div>
-        
         <div class="button-container">
           <button id="checkButton" disabled>Check Manuscript</button>
           <button id="clearButton">Clear</button>
         </div>
       </div>
-      
       <div class="results-section hidden" id="results">
         <h2>Manuscript Check Results</h2>
         <div id="resultsContent"></div>
@@ -169,318 +164,232 @@
     </footer>
   </div>
 
-  <!-- Embedded bridge.js -->
   <script>
-    // File handling bridge between JavaScript and Python
     window.NHANESBridge = {
       async fetchTextFromFile(file) {
         return new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = (e) => resolve(e.target.result);
-          reader.onerror = (e) => reject(new Error(`Error reading file: ${e.target.error}`));
+          reader.onerror = (e) => reject(new Error(`Error reading file (text): ${e.target.error}`));
           reader.readAsText(file);
         });
       },
-
       async fetchArrayBufferFromFile(file) {
         return new Promise((resolve, reject) => {
           const reader = new FileReader();
-          reader.onload = (e) => resolve(e.target.result);
-          reader.onerror = (e) => reject(new Error(`Error reading file: ${e.target.error}`));
+          reader.onload = (e) => resolve(e.target.result); 
+          reader.onerror = (e) => reject(new Error(`Error reading file (arraybuffer): ${e.target.error}`));
           reader.readAsArrayBuffer(file);
         });
       },
-
       showUILoading(message = "Processing...") {
-        const textarea = document.getElementById('manuscriptText');
-        const checkButton = document.getElementById('checkButton');
-        const clearButton = document.getElementById('clearButton');
-        const fileInput = document.getElementById('manuscriptFile');
-        
-        if (textarea) textarea.value = message;
-        if (textarea) textarea.disabled = true;
-        if (checkButton) checkButton.disabled = true;
-        if (clearButton) clearButton.disabled = true;
-        if (fileInput) fileInput.disabled = true;
+        const ta = document.getElementById('manuscriptText');
+        const cb = document.getElementById('checkButton');
+        const clb = document.getElementById('clearButton');
+        const fi = document.getElementById('manuscriptFile');
+        if (ta) { ta.value = message; ta.disabled = true; }
+        if (cb) cb.disabled = true;
+        if (clb) clb.disabled = true;
+        if (fi) fi.disabled = true;
       },
-
       hideUILoading(enableCheckButton = true) {
-        const textarea = document.getElementById('manuscriptText');
-        const checkButton = document.getElementById('checkButton');
-        const clearButton = document.getElementById('clearButton');
-        const fileInput = document.getElementById('manuscriptFile');
-        
-        if (textarea) textarea.disabled = false;
-        if (checkButton) checkButton.disabled = !enableCheckButton;
-        if (clearButton) clearButton.disabled = false;
-        if (fileInput) fileInput.disabled = false;
+        const ta = document.getElementById('manuscriptText');
+        const cb = document.getElementById('checkButton');
+        const clb = document.getElementById('clearButton');
+        const fi = document.getElementById('manuscriptFile');
+        if (ta) ta.disabled = false;
+        if (clb) clb.disabled = false;
+        if (fi) fi.disabled = false;
+        if (ta && cb) {
+            const text = ta.value.trim(); 
+            const isMsg = text.startsWith("Loading") || text.startsWith("Error") || text.startsWith("Unsupported");
+            cb.disabled = !text || isMsg || !enableCheckButton;
+        }
       }
     };
-
-    // Update loading message with status
     function updateLoadingStatus(message) {
-      const progressElem = document.getElementById('loadingProgress');
-      if (progressElem) {
-        progressElem.textContent = message;
-      }
+      const pe = document.getElementById('loadingProgress');
+      if (pe) pe.textContent = message;
     }
-    
     window.updateLoadingStatus = updateLoadingStatus;
-  </script>
 
-  <!-- Embedded Pyodide Loader and Python Code -->
-  <script>
-    // Loads Pyodide and Python implementation
     async function main() {
       try {
-        console.log("Loading Pyodide...");
         updateLoadingStatus("Loading Pyodide core...");
         const pyodide = await loadPyodide();
         window.pyodide = pyodide;
-        
-        console.log("Loading Python packages...");
         updateLoadingStatus("Loading Python packages...");
-        await pyodide.loadPackagesFromImports('import re');
-        
-        console.log("Loading Python implementation...");
         updateLoadingStatus("Loading NHANES Checker implementation...");
         
-        // The Python code as a string (all-in-one approach)
         const pythonCode = `
 import re
-import js
-from pyodide.ffi import create_proxy
-from js import document, console, mammoth, pdfjsLib, alert, window
+import js 
+from pyodide.ffi import create_proxy, to_js, JsException
+from js import document, console, alert, window 
+import traceback 
 from datetime import datetime
 
 # --- NHANES Checker Functions ---
-
 def check_for_nhanes(text):
-    """Look for mentions of NHANES or National Health and Nutrition Examination Survey"""
     nhanes_regex = r'\\bNHANES\\b|\\bNational Health and Nutrition Examination Survey\\b'
     return bool(re.search(nhanes_regex, text, re.IGNORECASE))
 
 def check_nhanes_citation(text):
-    """Look for proper citation mentions"""
     citation_patterns = [
         r'Centers for Disease Control and Prevention \\(CDC\\)',
         r'National Center for Health Statistics \\(NCHS\\)',
-        r'https?:\\/\\/www\\.cdc\\.gov\\/nchs\\/nhanes',
+        r'https?://www\\.cdc\\.gov/nchs/nhanes',
         r'NHANES protocol was approved by the NCHS Research Ethics Review Board',
         r'NHANES data are publicly available'
     ]
-    
     found_patterns = []
-    
     for pattern in citation_patterns:
         if re.search(pattern, text, re.IGNORECASE):
-            found_patterns.append(pattern.replace('\\\\', ''))
+            found_patterns.append(pattern) 
     
-    # Check for methods/methodology section
     has_methods_section = bool(re.search(r'\\b(?:methods?|methodology)\\b', text, re.IGNORECASE))
     
-    if len(found_patterns) >= 2 and has_methods_section:
-        return {
-            'passed': True,
-            'details': f'NHANES properly cited. Found {len(found_patterns)} citation elements and methods section.'
-        }
+    if len(found_patterns) >= 1 and has_methods_section:
+        return {'passed': True, 'details': f'NHANES properly cited. Found {len(found_patterns)} citation elements and methods section.'}
     else:
         issues = []
-        if len(found_patterns) < 2:
-            issues.append(f'Missing proper NHANES citation elements (found only {len(found_patterns)}, need at least 2)')
-        if not has_methods_section:
-            issues.append("No apparent methods section found")
-        
-        return {
-            'passed': False,
-            'details': f'NHANES citation issues: {"; ".join(issues)}'
-        }
+        if len(found_patterns) < 2: issues.append(f'Missing proper NHANES citation elements (found only {len(found_patterns)}, need at least 2)')
+        if not has_methods_section: issues.append("No apparent methods section found")
+        return {'passed': False, 'details': f'NHANES citation issues: {"; ".join(issues)}'}
 
 def check_survey_design_acknowledgment(text):
-    """Check for survey design acknowledgment (temporarily disabled)"""
-    return {
-        'passed': True,  # Keeps it from being treated as a critical failure for now
-        'skipped': True,  # Add the skipped flag
-        'details': "Check for Survey Design Acknowledgment is currently disabled."
-    }
+    return {'passed': True, 'skipped': True, 'details': "Check for Survey Design Acknowledgment is currently disabled."}
 
 def check_weighting_methodology(text):
-    """Check for weighting methodology (temporarily disabled)"""
-    return {
-        'passed': True,  # Keeps it from being treated as a critical failure for now
-        'skipped': True,  # Add the skipped flag
-        'details': "Check for Weighting Methodology is currently disabled."
-    }
+    return {'passed': True, 'skipped': True, 'details': "Check for Weighting Methodology is currently disabled."}
 
 def check_nhanes_date_range(text):
-    """
-    Checks text for year ranges potentially related to NHANES or similar datasets.
-    Validates ranges based on:
-    1. Plausibility (within reasonable year boundaries: MIN_PLAUSIBLE_YEAR to currentYear).
-    2. Start year is odd, end year is even.
-    """
-    # Configuration for plausibility
     MIN_PLAUSIBLE_YEAR = 1950
     current_year = datetime.now().year
     MAX_PLAUSIBLE_YEAR = current_year
-
-    # Regex to find potential year ranges, possibly associated with NHANES
-    cycle_regex = r'(?:NHANES|National Health and Nutrition Examination Survey)?\\s*(?:data)?\\s*(?:from)?\\s*(?:the)?\\s*(?:years?)?\\s*(?:(?:19|20)\\d{2})(?:\\s*[-–—]\\s*(?:(?:19|20)\\d{2}))?|(?:(?:19|20)\\d{2})(?:\\s*[-–—]\\s*(?:(?:19|20)\\d{2}))?\\s*(?:NHANES|National Health and Nutrition Examination Survey)'
+    cycle_regex = r'(?:NHANES|National Health and Nutrition Examination Survey)?\\s*(?:data)?\\s*(?:from)?\\s*(?:the)?\\s*(?:years?)?\\s*(?:(?:19|20)\\d{2})(?:\\s*[-–—]\\s*(?:(?:19|20)\\d{2}))?|(?:\s*(?:19|20)\\d{2})(?:\\s*[-–—]\\s*(?:(?:19|20)\\d{2}))?\\s*(?:NHANES|National Health and Nutrition Examination Survey)'
     
     matches = re.findall(cycle_regex, text, re.IGNORECASE) or []
-    found_valid_range = False
-    found_invalid_range = False
-    found_implausible_range = False
-    valid_range_details = []
-    invalid_range_details = []
-    implausible_range_details = []
+    found_valid_range, found_invalid_range, found_implausible_range = False, False, False
+    valid_range_details, invalid_range_details, implausible_range_details = [], [], []
     
     if not matches:
-        # Broader search for *any* YYYY-YYYY pattern if specific NHANES context is missed
         generic_range_regex = r'(?:19|20)\\d{2}\\s*[-–—]\\s*(?:19|20)\\d{2}'
         matches = re.findall(generic_range_regex, text) or []
     
-    # If still no matches, we can't perform the check effectively
     if not matches:
-        return {
-            'passed': True,  # Pass leniently if no range is mentioned
-            'details': "No potential year ranges found to validate."
-        }
+        return {'passed': True, 'details': "No potential year ranges found to validate."}
     
     year_regex = r'(?:19|20)\\d{2}'
     
     for match_text in matches:
-        years = [int(year) for year in re.findall(year_regex, match_text)]
-        
-        # We are only interested in pairs of years (start-end)
-        if len(years) == 2:
-            start_year, end_year = years
-            
-            # Plausibility Checks
-            is_plausible = (
-                start_year >= MIN_PLAUSIBLE_YEAR and
-                end_year <= MAX_PLAUSIBLE_YEAR and
-                end_year >= start_year
-            )
+        year_pairs_in_match = re.findall(r'((?:19|20)\\d{2})\\s*[-–—]\\s*((?:19|20)\\d{2})', match_text)
+        if not year_pairs_in_match: continue
+
+        for start_year_str, end_year_str in year_pairs_in_match:
+            start_year, end_year = int(start_year_str), int(end_year_str)
+            is_plausible = (MIN_PLAUSIBLE_YEAR <= start_year <= end_year <= MAX_PLAUSIBLE_YEAR)
             
             if not is_plausible:
                 found_implausible_range = True
-                implausible_range_details.append(f"{start_year}-{end_year} (in \\"{match_text}\\")")
-                continue  # Skip validation for this implausible range
+                implausible_range_details.append(f'{start_year}-{end_year} (in \\"{match_text}\\")')
+                continue
             
-            # Validation Check (Odd Start, Even End)
             if start_year % 2 == 1 and end_year % 2 == 0:
-                # Meets the odd-start, even-end criteria
                 found_valid_range = True
                 valid_range_details.append(f"{start_year}-{end_year}")
             else:
-                # Is a plausible date range but fails the odd/even rule
                 found_invalid_range = True
-                invalid_range_details.append(f"{start_year}-{end_year} (in \\"{match_text}\\")")
+                invalid_range_details.append(f'{start_year}-{end_year} (in \\"{match_text}\\")')
     
-    # Determine final result based on findings
-    details = ""
-    passed = True  # Default to passing unless an explicit invalid range is found
-    
+    details, passed = "", True
     if found_valid_range:
-        passed = True  # At least one valid range found
         details = f"Valid OddStart-EvenEnd date range(s) found: {', '.join(list(set(valid_range_details)))}."
-        if found_invalid_range:
-            details += f" (Also found plausible ranges failing the OddStart-EvenEnd rule: {', '.join(list(set(invalid_range_details)))})"
+        if found_invalid_range: details += f" (Also found plausible ranges failing rule: {', '.join(list(set(invalid_range_details)))})"
+        if found_implausible_range: details += f" (Implausible ranges like {', '.join(list(set(implausible_range_details)))} ignored)."
     elif found_invalid_range:
-        passed = False  # Explicitly invalid ranges found, and no valid ones
-        details = f"No valid OddStart-EvenEnd ranges confirmed. Found plausible ranges with issues: {', '.join(list(set(invalid_range_details)))}."
+        passed = False
+        details = f"No valid OddStart-EvenEnd ranges. Found issues: {', '.join(list(set(invalid_range_details)))}."
+        if found_implausible_range: details += f" (Implausible ranges like {', '.join(list(set(implausible_range_details)))} ignored)."
     elif found_implausible_range:
-        # Only found ranges that were filtered out as implausible (e.g., page numbers, future dates)
-        passed = True  # Lenient pass - no *date* ranges were found to violate the rule
-        details = "Found number ranges, but they were filtered out as unlikely calendar year ranges (e.g., potentially page numbers or out of date bounds)."
+        details = f"Found number ranges, filtered as unlikely year ranges (e.g., {', '.join(list(set(implausible_range_details)))})."
     else:
-        # Matches were found by regex, but didn't yield 2 years, or something unexpected occurred.
-        passed = True  # Pass leniently
-        details = "Could not definitively identify plausible year ranges for validation from the text patterns found."
-    
+        details = "Could not definitively identify plausible year ranges for validation."
     return {'passed': passed, 'details': details}
 
-def extract_manuscript_topics(text):
-    """Extract the main health topics from the manuscript based on keyword frequency"""
-    # Extract title and abstract
+def extract_manuscript_topics(text): 
     title_match = re.search(r'^(?:Title\\s*[:\\s]*)?([^\\n]+)', text, re.IGNORECASE)
-    abstract_regex = r'\\bAbstract\\b([\\s\\S]*?)(?=\\n\\s*\\b(Keywords|Introduction|Background|Methods)\\b|\\n{2,})'
-    abstract_match = re.search(abstract_regex, text, re.IGNORECASE)
+    abstract_regex_pattern = r'\\bAbstract\\b([\\s\\S]*?)(?=\\n\\s*\\b(?:Keywords|Introduction|Background|Methods)\\b|\\n{2,})' 
     
-    title = title_match.group(1).strip() if title_match else ""
-    abstract = abstract_match.group(1).strip() if abstract_match else ""
+    title = title_match.group(1).strip() if title_match and title_match.group(1) else ""
     
-    # Focus analysis on title and abstract; fallback to first ~500 words
-    analysis_text = (title + " " + abstract).strip() or text[:3000]
+    actual_abstract_match_object = re.search(abstract_regex_pattern, text, re.IGNORECASE)
+    abstract = actual_abstract_match_object.group(1).strip() if actual_abstract_match_object and actual_abstract_match_object.group(1) else ""
     
+    analysis_text = (title + " " + abstract).strip() 
     if not analysis_text:
-        return ["General Health/Unknown"]  # Default if no text
+        analysis_text = text[:min(len(text), 3000)] 
+
+    if not analysis_text: return ["General Health/Unknown"]
     
-    # Domain keywords
     health_domains = {
         "Cardiovascular": ["heart", "cardiac", "cardiovascular", "blood pressure", "hypertension", "cholesterol", "stroke", "atherosclerosis", "vascular", "lipids", "arrhythmia"],
         "Nutrition/Diet": ["diet", "dietary", "food", "nutrition", "nutrient", "intake", "consumption", "supplement", "eating pattern", "malnutrition", "vitamin", "mineral", "fiber", "calories"],
         "Metabolic/Endocrine": ["diabetes", "insulin", "glucose", "metabolic syndrome", "obesity", "BMI", "body mass index", "thyroid", "endocrine", "adiposity", "waist circumference", "hormone"],
-        "Epidemiology/Public Health": ["prevalence", "incidence", "risk factor", "population", "demographic", "public health", "mortality", "morbidity", "surveillance", "trends", "disparities", "socioeconomic"],
+        "Epidemiology/Public Health": [
+            "prevalence", "incidence", "risk factor", "population", "demographic", 
+            "public health", "mortality", "morbidity", "surveillance", "trends", 
+            "disparities", "socioeconomic", "nationally representative", "cohort", 
+            "prognostic", "prognostic indicator", "nhanes" 
+        ],
         "Mental Health/Neurology": ["depression", "anxiety", "psychiatric", "mental", "psychological", "cognitive", "cognition", "neurologic", "stress", "mood", "suicide"],
-        "Respiratory": ["lung", "pulmonary", "respiratory", "asthma", "COPD", "breathing", "sleep apnea", "spirometry"],
+        "Respiratory": [
+            "lung", "pulmonary", "respiratory", "asthma", "COPD", "breathing", 
+            "sleep apnea", "spirometry", "chronic lower respiratory disease", 
+            "influenza", "pneumonia"
+        ],
         "Oncology": ["cancer", "tumor", "oncology", "malignancy", "carcinoma", "neoplasm"],
         "Pediatrics": ["child", "children", "adolescent", "pediatric", "youth", "infant", "growth", "development"],
         "Geriatrics": ["elderly", "older adults", "aging", "geriatric", "seniors", "frailty"],
         "Renal/Urology": ["kidney", "renal", "nephrology", "chronic kidney disease", "CKD", "urinary", "urology"],
-        "Musculoskeletal/Physical Activity": ["bone", "muscle", "physical activity", "exercise", "sedentary", "osteoporosis", "arthritis", "sarcopenia", "fitness"],
+        "Musculoskeletal/Physical Activity": [
+            "bone", "muscle", "physical activity", "exercise", "sedentary", 
+            "osteoporosis", "arthritis", "sarcopenia", "fitness", 
+            "orthopedic", "musculoskeletal", "spine"
+        ],
         "Environmental Health": ["exposure", "pollutant", "environment", "toxin", "heavy metal", "pesticide", "air quality", "lead", "mercury", "cadmium"],
-        "Infectious Disease": ["infection", "virus", "bacteria", "antibody", "vaccine", "hepatitis", "HIV"],
+        "Infectious Disease": ["infection", "virus", "bacteria", "antibody", "vaccine", "hepatitis", "HIV", "influenza", "pneumonia"],
         "Gastroenterology": ["gut", "gastrointestinal", "liver", "hepatic", "digestive"],
-        "Allergy/Immunology": ["allergy", "asthma", "immune", "inflammation", "antibody"]
+        "Allergy/Immunology": [ 
+            "allergy", "asthma", "immune", "inflammation", "antibody", "inflammatory marker",
+            "neutrophil", "platelet", "monocyte", "lymphocyte", "pan-immune"
+        ]
     }
-    
-    domain_scores = {}
-    
+    domain_scores = {domain: 0 for domain in health_domains}
     for domain, keywords in health_domains.items():
-        domain_scores[domain] = 0
         for keyword in keywords:
-            # Case-insensitive, whole word match
-            regex = r'\\b' + re.escape(keyword) + r'\\b'
-            matches = len(re.findall(regex, analysis_text, re.IGNORECASE) or [])
-            if matches > 0:
-                domain_scores[domain] += matches
+            regex = r'\\b' + re.escape(keyword) + r'\\b' 
+            domain_scores[domain] += len(re.findall(regex, analysis_text, re.IGNORECASE) or [])
     
-    # Filter out domains with zero score and sort
-    sorted_domains = sorted(
-        [(domain, score) for domain, score in domain_scores.items() if score > 0],
-        key=lambda x: x[1],
-        reverse=True
-    )
+    sorted_domains = sorted([(d, s) for d, s in domain_scores.items() if s > 0], key=lambda x: x[1], reverse=True)
     
-    # Determine top domains - require a minimum score and take top N
-    min_score_threshold = 2  # Require at least 2 mentions to be considered significant
-    top_n = 3
-    top_domains = [
+    min_score_threshold = 1 
+    top_n = 4 
+
+    candidate_domains = [
         domain for domain, score in sorted_domains 
         if score >= min_score_threshold
-    ][:top_n]
+    ]
+    final_top_domains = candidate_domains[:top_n]
     
-    return top_domains if top_domains else ["General Health/Mixed"]
+    return final_top_domains if final_top_domains else ["General Health/Mixed"]
 
-def check_nhanes_cycle_recency(text):
-    """
-    Checks text for YYYY-YYYY date ranges that DIRECTLY FOLLOW an NHANES mention
-    according to a specific pattern.
-    Validates ranges based on:
-    1. Plausibility (within reasonable year boundaries: MIN_PLAUSIBLE_YEAR to currentYear).
-    2. Start year is odd, end year is even.
-    """
-    MIN_PLAUSIBLE_YEAR = 1950
-    current_year = datetime.now().year
+def check_nhanes_cycle_recency(text): 
+    MIN_PLAUSIBLE_YEAR, current_year = 1950, datetime.now().year
     MAX_PLAUSIBLE_YEAR = current_year
     
-    # This regex specifically looks for "NHANES_KEYWORD [optional_words] YYYY-YYYY"
-    # The NHANES keyword part is MANDATORY for a match
-    nhanes_then_date_range_regex = r'(?:NHANES|National Health and Nutrition Examination Survey)\\s*(?:data)?\\s*(?:from)?\\s*(?:the)?\\s*(?:years?)?\\s*((?:19|20)\\d{2})\\s*[-–—]\\s*((?:19|20)\\d{2})'
+    nhanes_then_date_range_regex = r'\\b(?:NHANES|National\\sHealth\\sand\\sNutrition\\sExamination\\sSurvey)\\b[^\\d\\n]*?((?:19|20)\\d{2})\\s*[-–—]\\s*((?:19|20)\\d{2})'
     
-    # Find matches in text
     matches = re.findall(nhanes_then_date_range_regex, text, re.IGNORECASE)
     
     found_valid_range = False
@@ -492,19 +401,15 @@ def check_nhanes_cycle_recency(text):
     
     if not matches:
         return {
-            'passed': True,  # Pass leniently if no "NHANES... YYYY-YYYY" pattern is found
-            'details': "No date ranges found directly following an NHANES mention with the expected pattern."
+            'passed': True, 
+            'details': "No date ranges found closely following an NHANES mention with the flexible pattern."
         }
     
-    # Find full context matches to show in details
-    full_matches = re.findall(r'(?:NHANES|National Health and Nutrition Examination Survey)\\s*(?:data)?\\s*(?:from)?\\s*(?:the)?\\s*(?:years?)?\\s*(?:19|20)\\d{2}\\s*[-–—]\\s*(?:19|20)\\d{2}', text, re.IGNORECASE)
-    
-    for i, year_pair in enumerate(matches):
+    for year_pair in matches: 
         if len(year_pair) == 2:
             start_year = int(year_pair[0])
             end_year = int(year_pair[1])
-            
-            match_text = full_matches[i] if i < len(full_matches) else f"NHANES {start_year}-{end_year}"
+            match_display_text = f"NHANES ... {start_year}-{end_year}" 
             
             is_plausible = (
                 start_year >= MIN_PLAUSIBLE_YEAR and
@@ -514,7 +419,7 @@ def check_nhanes_cycle_recency(text):
             
             if not is_plausible:
                 found_implausible_range = True
-                implausible_range_details.append(f"{start_year}-{end_year} (in \\"{match_text}\\")")
+                implausible_range_details.append(f"{start_year}-{end_year} (from context like \\"{match_display_text}\\")")
                 continue
             
             if start_year % 2 == 1 and end_year % 2 == 0:
@@ -522,378 +427,518 @@ def check_nhanes_cycle_recency(text):
                 valid_range_details.append(f"{start_year}-{end_year}")
             else:
                 found_invalid_range = True
-                invalid_range_details.append(f"{start_year}-{end_year} (in \\"{match_text}\\")")
+                invalid_range_details.append(f"{start_year}-{end_year} (from context like \\"{match_display_text}\\")")
     
-    # Determine final result based on findings
     details = ""
-    passed = True
+    passed = True 
     
     if found_valid_range:
         passed = True
-        details = f"Valid OddStart-EvenEnd date range(s) following an NHANES mention found: {', '.join(list(set(valid_range_details)))}."
+        details = f"Valid OddStart-EvenEnd date range(s) closely following an NHANES mention found: {', '.join(list(set(valid_range_details)))}."
         if found_invalid_range:
             details += f" (Also found plausible ranges following NHANES mentions that failed the OddStart-EvenEnd rule: {', '.join(list(set(invalid_range_details)))})"
-    elif found_invalid_range:
+    elif found_invalid_range: 
         passed = False
-        details = f"No valid OddStart-EvenEnd ranges confirmed following NHANES mentions. Found plausible ranges with issues: {', '.join(list(set(invalid_range_details)))}."
-    elif found_implausible_range:
-        passed = True  # Lenient pass if only implausible ones were found matching the pattern
-        details = "Found date ranges following NHANES mentions, but they were filtered out as implausible (e.g., out of date bounds)."
-    else:
-        passed = True  # Pass leniently
-        details = "Could not definitively validate year ranges from the 'NHANES...YYYY-YYYY' patterns found."
-    
+        details = f"No valid OddStart-EvenEnd ranges confirmed closely following NHANES mentions. Found plausible ranges with issues: {', '.join(list(set(invalid_range_details)))}."
+    elif found_implausible_range: 
+        passed = True 
+        details = "Found date ranges closely following NHANES mentions, but they were filtered out as implausible (e.g., out of date bounds)."
+    else: 
+        passed = True 
+        details = "Patterns matching NHANES followed by years were found, but specific year pairs could not be validated."
+
     return {'passed': passed, 'details': details}
 
-def check_title_template(text):
-    """Check if the title appears to use a templated structure"""
-    # Extract the title
-    title_regex = r'^(?:Title\\s*[:\\s]*)?([^\\n]+)'
-    title_match = re.search(title_regex, text, re.IGNORECASE)
+
+def check_title_template(text): 
+    title_regex_pattern = r'^(?:Title\\s*[:\\s]*)?([^\\n]+)'
+    title_match = re.search(title_regex_pattern, text, re.IGNORECASE)
     
     if not title_match or not title_match.group(1):
         return {
-            'passed': True,  # Pass if title can't be found reliably
+            'passed': True, 
             'details': "Could not reliably extract a title to check for templating."
         }
     
     title = title_match.group(1).strip()
+    title_lower = title.lower()
+
+    association_keywords = [
+        'association', 'relationship', 'correlation', 'link', 
+        'impact', 'effect', 'influence', 'predictor', 'association with'
+    ]
+    association_prepositions = ['between', 'among', 'of', 'on', 'with']
     
-    # Patterns indicative of common templates
-    association_pattern = r'\\b(association|relationship|correlation|link|association|impact|effect|influence|predictor)\\b.*?\\b(between|among|of|on|with)\\b'
-    population_pattern = r'\\b(among|in|across|within)\\b.*?\\b(U\\.S\\.|US|American|population|adults|children|adolescents|participants|individuals|subjects|men|women|patient)\\b'
-    study_design_pattern = r'\\b(cross-sectional|longitudinal|cohort|survey|analysis|study)\\b'
-    nhanes_pattern = r'\\b(NHANES|National Health and Nutrition Examination Survey)'
+    found_association_keyword = any(re.search(r'\\b' + re.escape(kw) + r'\\b', title_lower) for kw in association_keywords)
+    found_association_preposition = any(re.search(r'\\b' + re.escape(prep) + r'\\b', title_lower) for prep in association_prepositions)
+    has_association_structure = found_association_keyword and found_association_preposition
+
+    population_indicators = [
+        'U.S. adults', 'US adults', 'American adults', 'U.S. population', 'US population',
+        'adults', 'children', 'adolescents', 'participants', 'individuals', 
+        'subjects', 'men', 'women', 'patients', 'older adults', 'elderly'
+    ]
+    has_population_statement = any(re.search(r'\\b' + re.escape(pop_term) + r'\\b', title_lower) for pop_term in population_indicators)
+
+
+    study_design_keywords = [
+        'cross-sectional', 'cross sectional', 'longitudinal', 'cohort', 
+        'survey', 'analysis', 'study', 'examination'
+    ] 
+    has_study_design = any(re.search(r'\\b' + re.escape(design) + r'\\b', title_lower) for design in study_design_keywords)
+
+    nhanes_with_colon_pattern = r':.*?\\b(NHANES|National Health and Nutrition Examination Survey)\\b|\\b(NHANES|National Health and Nutrition Examination Survey)\\b:'
+    specifies_nhanes_with_colon = bool(re.search(nhanes_with_colon_pattern, title, re.IGNORECASE)) 
     
-    # Score based on presence of these elements
-    score = 0
-    if re.search(association_pattern, title, re.IGNORECASE):
-        score += 1
-    if re.search(population_pattern, title, re.IGNORECASE):
-        score += 1
-    if re.search(study_design_pattern, title, re.IGNORECASE) or re.search(nhanes_pattern, title, re.IGNORECASE):
-        score += 1
-    
-    # Check for generic phrases often found in templates
-    common_phrases = bool(re.search(r'\\b(data from the|using data from|analysis of|based on the)\\b', title, re.IGNORECASE))
-    
-    # Check for keyword stuffing (arbitrary threshold for too many keywords)
-    words = [w for w in re.split(r'[\\s,:-]+', title.lower()) if len(w) > 2]
-    keyword_stuffing = len(words) > 15
-    
-    # Define failure conditions
-    if score >= 2 and common_phrases:
-        return {
-            'passed': False,
-            'details': f'Title "{title}" appears potentially templated (Score: {score}, Common Phrase: Yes). Contains common association/population/study elements.'
-        }
-    
-    if score >= 3:
-        return {
-            'passed': False,
-            'details': f'Title "{title}" appears strongly templated (Score: {score}). Matches multiple common patterns.'
-        }
-    
-    if keyword_stuffing:
-        return {
-            'passed': False,
-            'details': f'Title "{title}" might be overly long or keyword-stuffed.'
-        }
-    
+    issues_found = []
+    details_list = []
+
+    if has_association_structure:
+        issues_found.append("association structure")
+        details_list.append("✓ Title appears to outline an association/relationship.")
+    else:
+        details_list.append("✗ Title may not clearly outline an association/relationship.")
+
+    if has_population_statement:
+        issues_found.append("population statement")
+        details_list.append("✓ Title appears to state a population of interest.")
+    else:
+        details_list.append("✗ Title may not clearly state a population of interest.")
+
+    if has_study_design:
+        issues_found.append("study design mentioned")
+        details_list.append("✓ Title appears to mention a study design or type.")
+    else:
+        details_list.append("✗ Title may not mention a study design or type.")
+
+    if specifies_nhanes_with_colon:
+        issues_found.append("NHANES with colon")
+        details_list.append("✓ Title specifies NHANES as data source with colon formatting.")
+    else:
+        details_list.append("○ Title does not use the specific ': NHANES' or 'NHANES:' formatting.")
+
+    number_of_template_indicators = 0
+    if has_association_structure: number_of_template_indicators +=1
+    if has_population_statement: number_of_template_indicators +=1
+    if has_study_design: number_of_template_indicators +=1
+    if specifies_nhanes_with_colon: number_of_template_indicators += 1 
+
+    passed = True
+    summary_detail = f"Title: \\"{title}\\". "
+
+    if number_of_template_indicators >= 3: 
+        passed = False
+        summary_detail += f"Appears templated based on {number_of_template_indicators} common elements ({', '.join(issues_found)})."
+    elif number_of_template_indicators == 2 and specifies_nhanes_with_colon: 
+        passed = False
+        summary_detail += f"Appears somewhat templated due to 'NHANES with colon' and one other element ({', '.join(issues_found)})."
+    elif number_of_template_indicators >= 2: 
+         summary_detail += f"Shows some signs of templating with {number_of_template_indicators} elements ({', '.join(issues_found)})."
+    else: 
+        summary_detail += "Does not show strong signs of common templating patterns."
+        if number_of_template_indicators > 0 : 
+             summary_detail += f" (Found {', '.join(issues_found)})."
+
+    full_details = summary_detail + "\\n" + "\\n".join(details_list)
+
     return {
-        'passed': True,
-        'details': f'Title does not appear excessively templated (Score: {score}, Common Phrase: {"Yes" if common_phrases else "No"}).'
+        'passed': passed,
+        'details': full_details
     }
 
-def check_author_red_flags(text):
-    """Check for red flags in author information including non-institutional emails, mismatched affiliations, etc."""
-    # Get topics using the extracted function
-    topics = extract_manuscript_topics(text)
+def check_author_red_flags(full_manuscript_text, text_for_checks):
+    topics = extract_manuscript_topics(text_for_checks) 
+    js.console.log(f"[Python DEBUG] Paper topics for affil relevance: {topics}")
     
-    # Find author/affiliation section
-    author_section_regex = r'(?:\\bAbstract\\b[\\s\\S]*?)(?:\\n\\s*(?:Authors?|Affiliations?)\\b\\s*[:\\n]?)([\\s\\S]*?)(?=\\n\\s*\\b(Introduction|Background|Methods|Results|Discussion|Conclusion|References|Acknowledgments)\\b|\\n{3,})'
-    author_section_match = re.search(author_section_regex, text, re.IGNORECASE)
-    author_section = author_section_match.group(1).strip() if author_section_match else ""
+    author_section_regex = r'(?:\\bAbstract\\b[\\s\\S]*?)(?:\\n\\s*(?:Authors?|Affiliations?)\\b\\s*[:\\n]?)([\\s\\S]*?)(?=\\n\\s*\\b(?:Introduction|Background|Methods|Results|Discussion|Conclusion|References|Acknowledgments|Funding|Conflict\s+of\s+Interest|Ethical\s+Approval|Data\s+Availability|Competing\s+Interests)\\b|\\n{3,})'
+    author_section_match = re.search(author_section_regex, text_for_checks, re.IGNORECASE) 
+    author_section_text_block = ""
+
+    if author_section_match and author_section_match.group(1):
+        author_section_text_block = author_section_match.group(1).strip()
+        js.console.log(f"[Python DEBUG] Author section extracted from main body, length: {len(author_section_text_block)}")
     
-    # Fallback: If no clear section, look broadly for emails and affiliations near the start
-    if not author_section:
-        first_part_of_text = text[:3000]
-        email_regex_global = r'\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b'
-        affiliation_regex_global = r'\\b(?:Department|Dept|Division|School|Faculty|Center|Institute|Hospital|University|College)\\b'
-        
-        if (re.search(email_regex_global, first_part_of_text, re.IGNORECASE) or 
-            re.search(affiliation_regex_global, first_part_of_text, re.IGNORECASE)):
-            # Consider the first ~1000 characters as potential author info section
-            author_section = first_part_of_text[:1000]
-        else:
-            return {
-                'passed': True,  # Cannot perform check if no author info found
-                'details': "Could not reliably extract author/affiliation information."
-            }
-    
-    # --- Flag 1: Non-Institutional Emails ---
+    if not author_section_text_block: 
+        first_part_of_full_text = full_manuscript_text[:4000] 
+        author_section_match_fallback = re.search(author_section_regex, first_part_of_full_text, re.IGNORECASE)
+        if author_section_match_fallback and author_section_match_fallback.group(1):
+            author_section_text_block = author_section_match_fallback.group(1).strip()
+            js.console.log(f"[Python DEBUG] Author section extracted from fallback (start of full text), length: {len(author_section_text_block)}")
+        else: 
+            email_regex_global = r'\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b'
+            affiliation_keyword_global = r'\\b(?:Department|Division|School|Faculty|Center|Institute|Hospital|University|College|Laboratory|Program|Unit|Clinic|Affiliation|Correspondence)\\b'
+            potential_author_area = full_manuscript_text[:2000] 
+            if (re.search(email_regex_global, potential_author_area, re.IGNORECASE) or 
+                re.search(affiliation_keyword_global, potential_author_area, re.IGNORECASE)):
+                author_section_text_block = potential_author_area 
+                js.console.log(f"[Python DEBUG] Author section inferred from broad search at start of text, length: {len(author_section_text_block)}")
+            else:
+                js.console.log("[Python DEBUG] Could not identify a distinct author information block.")
+                return {
+                    'passed': True, 
+                    'details': "Author information block not clearly identified; detailed author checks skipped."
+                }
+
+    if not author_section_text_block.strip():
+        js.console.log("[Python DEBUG] Author section block is empty after all fallbacks.")
+        return {
+            'passed': True,
+            'details': "No author information content found to perform detailed checks."
+        }
+
     email_regex = r'\\b[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\\.[A-Za-z]{2,})\\b'
-    emails = re.findall(email_regex, author_section)
-    non_institutional_domains = [
-        'gmail\\.com', 'yahoo\\.com', 'hotmail\\.com', 'outlook\\.com', 
-        'aol\\.com', 'icloud\\.com', 'protonmail\\.com', 'qq\\.com', 
-        '163\\.com', 'mail\\.com', 'yandex\\.com'
+    non_institutional_domains = ['gmail\\\\.com', 'yahoo\\\\.com', 'hotmail\\\\.com', 'outlook\\\\.com', 
+                                 'aol\\\\.com', 'icloud\\\\.com', 'protonmail\\\\.com', 'qq\\\\.com', 
+                                 '163\\\\.com', 'mail\\\\.com', 'yandex\\\\.com']
+    non_inst_pattern = r'(?:' + '|'.join(non_institutional_domains) + r')$' 
+    
+    all_email_domains_list = re.findall(email_regex, author_section_text_block)
+    num_all_emails = len(all_email_domains_list)
+    non_institutional_email_matches = [domain for domain in all_email_domains_list if re.search(non_inst_pattern, domain, re.IGNORECASE)]
+    num_non_inst_emails = len(non_institutional_email_matches)
+
+    email_report_details = f"Email analysis: {num_non_inst_emails}/{num_all_emails} non-institutional emails found."
+    flag_non_institutional_emails = (num_all_emails > 0 and num_non_inst_emails >=1 and (num_all_emails > 0 and num_non_inst_emails / num_all_emails > 0.5))
+    if num_all_emails == 0:
+        email_report_details = "Email analysis: No author emails found in the extracted author section."
+
+    # --- START OF REFINED AFFILIATION PARSING ---
+    extracted_departmental_units = []
+    affiliation_lines = [line.strip() for line in author_section_text_block.split('\\n') if line.strip()] # Correct for Python string
+    js.console.log(f"[Python DEBUG] Number of lines in author_section_text_block after split: {len(affiliation_lines)}")
+
+    affiliation_line_keywords = [
+        "university", "hospital", "institute", "school", "department", 
+        "college", "center", "centre", "laboratory", "clinic", 
+        "foundation", "research", "faculty", "program", "division", "section",
+        "polytechnic", "academy" 
     ]
-    non_inst_pattern = '|'.join(non_institutional_domains)
-    non_institutional_emails = [email for email in emails if re.search(non_inst_pattern, email, re.IGNORECASE)]
+    non_affiliation_line_starters = [
+        "these authors contributed", "corresponding author", "email:", "emails:",
+        "author contributions", "acknowledgments", "funding", "conflict of interest",
+        "competing interests", "ethical approval", "data availability", "consent for publication",
+        "contributions:", "disclosure", "supported by", "received ", "accepted ", "published ",
+        "keywords:", "abstract"
+    ]
+    affiliation_marker_regex = r'^\\s*(?:[\\(\\[]?\\s*[a-zA-Z0-9]+[\\s\\)\\]]*[.:])\\s*'
+
+
+    for line_idx, line in enumerate(affiliation_lines):
+        line_lower = line.lower()
+        original_line_for_debug = line
+
+        if any(line_lower.startswith(starter) for starter in non_affiliation_line_starters):
+            continue
+        
+        if '@' in line:
+            if not any(aff_kw in line_lower for aff_kw in ["university", "hospital", "institute", "school", "department", "center"]):
+                js.console.log(f"[Python DEBUG] AffilParse Line {line_idx}: Skipped (likely email line): '{original_line_for_debug}'")
+                continue
+        
+        if line.count(',') > 2 and sum(c.isdigit() for c in line) < 2 and \
+           not any(aff_kw in line_lower for aff_kw in affiliation_line_keywords):
+            parts = [p.strip() for p in line.split(',')]
+            if len(parts) > 2 and all(len(p.split()) < 5 for p in parts):
+                continue
+        
+        is_marked_affiliation = bool(re.match(affiliation_marker_regex, line))
+        contains_affiliation_keyword_in_line = any(aff_kw in line_lower for aff_kw in affiliation_line_keywords)
+
+        if not is_marked_affiliation and not contains_affiliation_keyword_in_line:
+            continue
+
+        department_candidate = ""
+        line_content_no_marker = re.sub(affiliation_marker_regex, '', line).strip()
+
+        if not line_content_no_marker:
+            js.console.log(f"[Python DEBUG] AffilParse Line {line_idx}: Skipped (only marker found): '{original_line_for_debug}'")
+            continue
+
+        if ',' in line_content_no_marker:
+            department_candidate = line_content_no_marker.split(',')[0].strip()
+        else:
+            department_candidate = line_content_no_marker 
+        
+        if department_candidate and len(department_candidate) > 3 and len(department_candidate) < 120 : 
+            cleaned_unit = department_candidate.lower()
+            
+            generic_prefixes = sorted([ 
+                "department of", "dept. of", "dept of", "division of", "school of", 
+                "faculty of", "center for", "centre for", "institute of", "unit of", 
+                "program in", "section of", "clinic of", "service of", "laboratory of",
+                "department", "division", "school", "faculty", "center", "centre", 
+                "institute", "unit", "program", "section", "clinic", "service", "laboratory"
+            ], key=len, reverse=True)
+
+            temp_cleaned_unit = cleaned_unit 
+            for gp in generic_prefixes:
+                if temp_cleaned_unit == gp: 
+                    temp_cleaned_unit = "" 
+                    break
+                if temp_cleaned_unit.startswith(gp + " ") or temp_cleaned_unit.startswith(gp + ","):
+                    stripped = temp_cleaned_unit[len(gp):].lstrip(' ,')
+                    if stripped: 
+                        temp_cleaned_unit = stripped
+            cleaned_unit = temp_cleaned_unit.strip()
+
+            common_place_names = ["china", "usa", "u.s.a", "united states", "uk", "united kingdom", 
+                                  "japan", "germany", "france", "canada", "australia", "korea", "taiwan",
+                                  "shanghai", "beijing", "london", "new york", "tokyo", "seoul", "berlin", "paris"]
+            
+            is_just_number_or_short_code = bool(re.fullmatch(r'[\\(\\[\\]\\d\\s,.-]+', cleaned_unit)) and len(cleaned_unit) < 5
+
+            if cleaned_unit and len(cleaned_unit) > 3 and not cleaned_unit in common_place_names and not is_just_number_or_short_code:
+                extracted_departmental_units.append(cleaned_unit)
+                js.console.log(f"[Python DEBUG] Extracted unit: '{cleaned_unit}' from line: '{original_line_for_debug}' (Derived from: '{department_candidate}')")
+    # --- END OF REFINED AFFILIATION PARSING ---
+
+    unique_affiliations = list(set(unit for unit in extracted_departmental_units if unit))
+    num_unique_affiliations = len(unique_affiliations)
+    js.console.log(f"[Python DEBUG] Final unique affiliation units for relevance check: {unique_affiliations}")
     
-    # Flag if > 50% are non-institutional AND there's at least one such email
-    has_non_institutional_emails = False
-    email_flag_details = ''
-    if emails:
-        has_non_institutional_emails = (len(non_institutional_emails) / len(emails) > 0.5)
-        if has_non_institutional_emails:
-            email_flag_details = f'Majority ({len(non_institutional_emails)}/{len(emails)}) non-institutional emails; '
+    affiliation_count_details = f"Affiliation count: Found {num_unique_affiliations} distinct affiliation units."
+    flag_too_many_affiliations = num_unique_affiliations > 3 
+
+    GENERAL_NON_HEALTH_KEYWORDS = [
+        "computer science", "electrical engineering", "mechanical engineering", 
+        "aerospace engineering", "astronomy", "particle physics", "nuclear engineering",
+        "pure mathematics", "theoretical physics",
+        "geology", "oceanography", "architecture", "urban planning", "civil engineering",
+        "fine arts", "music", "performing arts", "humanities", "literature", "history", "philosophy",
+        "linguistics", "archaeology", 
+        "law", "business administration", "finance", 
+        "software engineering", "information technology services"
+    ]
     
-    # --- Flag 2: Mismatched Departments/Affiliations ---
-    affiliation_regex = r'\\b(?:Department|Dept|Division|School|Faculty|Center|Institute|Hospital|University|College|Laboratory|Program|Unit|Clinic)\\s+(?:of\\s+)?([A-Za-z\\s,&\\'-]+)'
-    affiliation_matches = re.findall(affiliation_regex, author_section, re.IGNORECASE)
-    affiliations = [re.sub(r'[\\d,.;]+$', '', match).strip().lower() for match in affiliation_matches]
-    
-    # Relevance mapping for affiliations
     relevance_mappings = {
-        "Cardiovascular": ["cardiology", "cardiovascular", "vascular", "heart", "preventive medicine", "internal medicine"],
-        "Nutrition/Diet": ["nutrition", "dietetics", "food science", "public health", "preventive medicine", "metabolism"],
-        "Metabolic/Endocrine": ["endocrinology", "metabolic", "diabetes", "obesity", "medicine", "internal medicine"],
-        "Epidemiology/Public Health": ["epidemiology", "public health", "biostatistics", "community health", "preventive medicine", "statistics", "population health"],
-        "Mental Health/Neurology": ["psychiatry", "psychology", "neurology", "behavioral", "neuroscience", "mental health"],
-        "General Health/Mixed": ["medicine", "health science", "public health", "biology", "biostatistics", "statistics", "internal medicine", "family medicine", "nursing", "pharmacy"]
+        "Cardiovascular": ["cardiology", "cardiovascular", "vascular", "heart", "hypertension", "lipids"],
+        "Nutrition/Diet": ["nutrition", "dietetics", "dietary", "food science"],
+        "Metabolic/Endocrine": ["endocrinology", "metabolic", "diabetes", "obesity", "thyroid"],
+        "Epidemiology/Public Health": ["epidemiology", "public health", "biostatistics", "statistics", "preventive medicine", "population health"],
+        "Mental Health/Neurology": ["psychiatry", "psychology", "neurology", "neuroscience", "cognitive"],
+        "Respiratory": ["pulmonary", "respiratory", "lung", "thoracic"],
+        "Oncology": ["oncology", "cancer", "neoplasm"],
+        "Pediatrics": ["pediatric", "child health"],
+        "Geriatrics": ["geriatric", "aging"],
+        "Renal/Urology": ["nephrology", "renal", "kidney", "urology"],
+        "Musculoskeletal/Physical Activity": ["orthopedic", "musculoskeletal", "sports medicine", "spine", "bone", "osteoporosis", "rheumatology"],
+        "Environmental Health": ["environmental health", "toxicology", "exposure science"],
+        "Infectious Disease": ["infectious disease", "virology", "bacteriology", "immunology"],
+        "Gastroenterology": ["gastroenterology", "hepatology", "digestive"],
+        "Allergy/Immunology": ["allergy", "immunology", "immune", "inflammation"],
+        "General Health/Mixed": ["biostatistics", "bioinformatics", "research methodology", "data science", "clinical trial", "health services research"]
     }
     
     relevant_affiliations_count = 0
-    unique_affiliations = list(set([affil for affil in affiliations if len(affil) > 2]))
-    
-    for affil in unique_affiliations:
-        is_relevant = False
-        # Check against identified topics
-        for topic in topics:
-            relevant_terms = relevance_mappings.get(topic, relevance_mappings["General Health/Mixed"])
-            if any(term in affil for term in relevant_terms):
-                is_relevant = True
-                break
-        
-        # Check against general health terms if not already relevant
-        if not is_relevant:
-            general_terms = relevance_mappings["General Health/Mixed"]
-            if any(term in affil for term in general_terms):
-                is_relevant = True
-        
-        if is_relevant:
-            relevant_affiliations_count += 1
-    
-    # Flag if < 50% affiliations seem relevant AND there are affiliations listed
-    has_mismatched_affiliations = False
-    mismatch_flag_details = ''
+    distinctly_non_health_affiliations_count = 0 
+    affiliation_relevance_details = "Affiliation relevance: No unique affiliations to check."
+    flag_mismatched_affiliations = False
+    affiliation_match_debug = []
+
     if unique_affiliations:
-        has_mismatched_affiliations = (relevant_affiliations_count / len(unique_affiliations)) < 0.5
-        if has_mismatched_affiliations:
-            mismatch_flag_details = f'Affiliations ({relevant_affiliations_count}/{len(unique_affiliations)} relevant) may not align well with topics ({", ".join(topics)}); '
+        for affil_text_lower in unique_affiliations:
+            is_specifically_relevant_to_paper_topic = False
+            is_generally_relevant_research_field = False
+            is_distinctly_non_health = False
+            matched_keywords_log = []
+
+            for neg_kw in GENERAL_NON_HEALTH_KEYWORDS:
+                if re.search(r'\\b' + re.escape(neg_kw) + r'\\b', affil_text_lower):
+                    is_distinctly_non_health = True
+                    matched_keywords_log.append(f"NON-HEALTH keyword: '{neg_kw}'")
+                    break 
+
+            if is_distinctly_non_health:
+                distinctly_non_health_affiliations_count += 1
+                affiliation_match_debug.append(f"'{affil_text_lower}' flagged as DISTINCTLY NON-HEALTH due to: {', '.join(matched_keywords_log)}")
+            else:
+                for topic in topics: 
+                    specific_topic_keywords = relevance_mappings.get(topic, [])
+                    for term in specific_topic_keywords:
+                        if re.search(r'\\b' + re.escape(term) + r'\\b', affil_text_lower):
+                            is_specifically_relevant_to_paper_topic = True
+                            matched_keywords_log.append(f"{term} (topic: {topic})")
+                
+                if not is_specifically_relevant_to_paper_topic:
+                    general_research_keywords = relevance_mappings.get("General Health/Mixed", [])
+                    for term in general_research_keywords:
+                        if re.search(r'\\b' + re.escape(term) + r'\\b', affil_text_lower):
+                            is_generally_relevant_research_field = True
+                            matched_keywords_log.append(f"{term} (general research field)")
+            
+                if is_specifically_relevant_to_paper_topic:
+                    relevant_affiliations_count += 1
+                    affiliation_match_debug.append(f"'{affil_text_lower}' SPECIFICALLY matched paper topic: {', '.join(matched_keywords_log)}")
+                elif is_generally_relevant_research_field:
+                    relevant_affiliations_count += 1 
+                    affiliation_match_debug.append(f"'{affil_text_lower}' matched GENERAL research field: {', '.join(matched_keywords_log)}")
+                else:
+                    affiliation_match_debug.append(f"'{affil_text_lower}' - no specific or general health research field match found for topics: {', '.join(topics)}.")
+
+        if num_unique_affiliations > 0:
+            relevance_ratio = relevant_affiliations_count / num_unique_affiliations
+            detail_parts = [f"{relevant_affiliations_count}/{num_unique_affiliations} affiliations appear relevant to paper topics ({', '.join(topics)})."]
+            if distinctly_non_health_affiliations_count > 0:
+                flag_mismatched_affiliations = True
+                detail_parts.append(f"{distinctly_non_health_affiliations_count} affiliation(s) seem distinctly non-health related.")
+            if not flag_mismatched_affiliations:
+                if relevance_ratio < 0.4 and num_unique_affiliations > 1: 
+                    flag_mismatched_affiliations = True
+                    detail_parts.append("Low proportion of topic-specific affiliations.")
+                elif num_unique_affiliations > 2 and relevance_ratio < 0.6: 
+                    flag_mismatched_affiliations = True
+                    detail_parts.append("Low proportion of topic-specific affiliations for multiple institutions.")
+            affiliation_relevance_details = " ".join(detail_parts)
+        else:
+             affiliation_relevance_details = "Affiliation relevance: No unique affiliations found to check."
+
+        js.console.log("[Python DEBUG] Affiliation Relevance Matches/Flags:")
+        for dbg_msg in affiliation_match_debug:
+            js.console.log(f"[Python DEBUG] - {dbg_msg}")
     
-    # --- Flag 3: Claims of Data Collection ---
-    collection_context_regex = r'\\b(?:we|authors?)\\s+(?:collected|gathered|obtained|acquired|assembled|recruited)\\s+(?:(?:the|these|our)\\s+)?(?:participants|subjects|(?:NHANES\\s+)?data)\\b'
-    claims_data_collection = bool(re.search(collection_context_regex, text, re.IGNORECASE))
-    collection_flag_details = 'Potentially claims to have collected the NHANES data/participants; ' if claims_data_collection else ''
+    author_contrib_regex = r'(?im)^\\s*(?:Author(?:s)?\\sContributions?)\s*:?\s*\\n([\\s\\S]*?)(?=\\n\\s*\\b(?:Conflict\s+of\s+Interest|Funding|Acknowledgments|References|Ethical\s+Approval|Data\s+Availability|Competing\s+Interests)\\b|\\n{3,})'
+    contrib_match = re.search(author_contrib_regex, full_manuscript_text) 
+    flag_claims_data_collection = False 
+    collection_flag_details = "" 
+
+    if contrib_match and contrib_match.group(1):
+        author_contributions_section_text_specific = contrib_match.group(1).strip()
+        #js.console.log(f"[Python] 'Author Contributions' section found, length: {len(author_contributions_section_text_specific)}")
+        collection_context_regex = r'\\b(?:we|authors?|I|study\s+group|team)\\s+(?:led\s+data\s+collection|collected|gathered|obtained|acquired|assembled|recruited|responsible\s+for\s+data\s+collection|managed\s+data|conducted\s+the\s+study|performed\s+the\s+experiments)\\s+(?:(?:the|these|our)\\s+)?(?:participants|subjects|(?:\\bNHANES\\b\\s+)?data|samples|specimens|information)\\b'
+        if re.search(collection_context_regex, author_contributions_section_text_specific, re.IGNORECASE):
+            flag_claims_data_collection = True
+            collection_flag_details = "Claims data collection in 'Author Contributions': Yes (Potential issue for NHANES secondary analysis)."
+            #js.console.log("[Python] Data collection claim FOUND in Author Contributions.")
+        else:
+            flag_claims_data_collection = False
+            collection_flag_details = "Claims data collection in 'Author Contributions': Section found, but no specific data collection claim detected within it."
+            #js.console.log("[Python] No data collection claim in Author Contributions section.")
+    else:
+        #js.console.log("[Python] 'Author Contributions' section not found.")
+        collection_flag_details = "Claims data collection in 'Author Contributions': 'Author Contributions' section not found."
     
-    # --- Combine Flags ---
-    red_flags_found = [flag for flag in [has_non_institutional_emails, has_mismatched_affiliations, claims_data_collection] if flag]
-    red_flag_count = len(red_flags_found)
+    all_details = [
+        email_report_details,
+        affiliation_count_details,
+        affiliation_relevance_details, 
+        collection_flag_details
+    ]
     
-    if red_flag_count >= 1:  # Fail on 1 or more strong flags
-        details = f'Found {red_flag_count} potential author/affiliation red flag(s): {email_flag_details}{mismatch_flag_details}{collection_flag_details}'
-        return {
-            'passed': False,
-            'details': details.strip()
-        }
+    flags_triggered_count = sum([
+        1 if flag_non_institutional_emails else 0,
+        1 if flag_too_many_affiliations else 0,
+        1 if flag_mismatched_affiliations else 0,
+        1 if flag_claims_data_collection else 0
+    ])
+    
+    passed = True 
+    summary_message = "Author information analysis complete."
+
+    if flags_triggered_count >= 2: 
+        passed = False
+        summary_message = f"Potential red flags in author information ({flags_triggered_count} issues detected)."
+    elif flags_triggered_count == 1:
+        summary_message = f"One potential issue found in author information."
+    
+    final_details_string = summary_message + "\\n" + "\\n".join(all_details)
     
     return {
-        'passed': True,
-        'details': f'Author information appears plausible ({red_flag_count} red flags detected). Topics: {", ".join(topics)}.'
+        'passed': passed,
+        'details': final_details_string
     }
 
+
 # --- File Processing Functions ---
+async def read_text_file(file_proxy): 
+    content = await window.NHANESBridge.fetchTextFromFile(file_proxy)
+    return content
 
-async def read_text_file(file):
-    """Read a text file"""
-    try:
-        content = await window.NHANESBridge.fetchTextFromFile(file)
-        return content
-    except Exception as e:
-        raise Exception(f"Error reading text file: {str(e)}")
+async def read_docx_file(file_proxy): 
+    if not hasattr(js, 'mammoth') or js.mammoth is None:
+         raise RuntimeError("Mammoth.js library (js.mammoth) is not loaded or undefined.")
+    array_buffer_js_proxy = await window.NHANESBridge.fetchArrayBufferFromFile(file_proxy)
+    options_py = {'arrayBuffer': array_buffer_js_proxy}
+    options_js = to_js(options_py, dict_converter=js.Object.fromEntries) 
+    result = await js.mammoth.extractRawText(options_js)
+    return result.value
 
-async def read_docx_file(file):
-    """Read a DOCX file using mammoth.js"""
-    try:
-        array_buffer = await window.NHANESBridge.fetchArrayBufferFromFile(file)
-        result = await mammoth.extractRawText({'arrayBuffer': array_buffer})
-        return result.value
-    except Exception as e:
-        raise Exception(f"Error processing DOCX: {str(e)}")
-
-async def read_pdf_file(file, progress_callback=None):
-    """Read a PDF file using PDF.js"""
-    try:
-        # Read file as array buffer
-        array_buffer = await window.NHANESBridge.fetchArrayBufferFromFile(file)
-        
-        # Set PDF.js worker
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js'
-        
-        # Load PDF document
-        loading_task = pdfjsLib.getDocument({'data': array_buffer})
-        pdf = await loading_task.promise
-        
-        # Initialize progress tracking
-        total_pages = pdf.numPages
-        pages_processed = 0
-        
-        if progress_callback:
-            progress_callback(pages_processed, total_pages)
-        
-        # Extract text from all pages
-        page_texts = []
-        
-        for i in range(1, total_pages + 1):
-            # Get page
-            page = await pdf.getPage(i)
-            
-            # Extract text content
-            text_content = await page.getTextContent()
-            
-            # Join text items
-            page_text = ' '.join([item.str for item in text_content.items])
-            page_texts.append(page_text)
-            
-            # Update progress
-            pages_processed += 1
-            if progress_callback:
-                progress_callback(pages_processed, total_pages)
-        
-        # Join all pages with double newlines
-        full_text = '\\n\\n'.join(page_texts)
-        return full_text
-    except Exception as e:
-        raise Exception(f"Error processing PDF: {str(e)}")
+async def read_pdf_file(file_proxy, progress_callback_proxy=None):
+    if not hasattr(js, 'pdfjsLib') or js.pdfjsLib is None:
+        raise RuntimeError("PDF.js library (js.pdfjsLib) is not loaded or undefined.")
+    array_buffer_js_proxy = await window.NHANESBridge.fetchArrayBufferFromFile(file_proxy)
+    js.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js'
+    pdf_options_py = {'data': array_buffer_js_proxy}
+    pdf_options_js = to_js(pdf_options_py, dict_converter=js.Object.fromEntries)
+    pdf_document_loading_task = js.pdfjsLib.getDocument(pdf_options_js) 
+    pdf = await pdf_document_loading_task.promise 
+    page_texts = []
+    for i in range(1, pdf.numPages + 1):
+        page = await pdf.getPage(i)
+        text_content_obj = await page.getTextContent() 
+        text_items_js_array = text_content_obj.items 
+        page_text_parts = []
+        for item_js in text_items_js_array: 
+            page_text_parts.append(str(item_js.str)) 
+        page_texts.append(' '.join(page_text_parts))
+        if progress_callback_proxy: 
+            progress_callback_proxy(i, pdf.numPages)
+    return '\\n\\n'.join(page_texts)
 
 # --- UI Functions ---
-
-def display_results(results):
-    """Display check results in the UI"""
-    # Get references to HTML elements
+def display_results(results_data):
     results_el = document.getElementById('results')
     results_content = document.getElementById('resultsContent')
-    
-    # Ensure elements exist
-    if not results_el or not results_content:
-        console.error("UI Error: Results container elements not found in the DOM.")
-        return
-    
-    # Make results section visible
+    if not results_el or not results_content: console.error("Results elements not found"); return
     results_el.classList.remove('hidden')
-    
-    # Clear any previous results
     results_content.innerHTML = ''
     
-    # --- Overall Result Banner ---
+    final_res = results_data.get('finalResult', 'Unknown')
+    fail_step = results_data.get('failStep', 0)
+    overall_class = 'check-item '
+    if final_res == 'Pass': overall_class += 'pass'
+    elif final_res == 'Fail' or final_res == 'Error': overall_class += 'fail'
+    else: overall_class += 'not-nhanes'
+    
+    result_text = f"Overall Result: {final_res}"
+    if final_res == 'Fail' and fail_step > 0: result_text += f" (Failed at Step {fail_step})"
+    if final_res == 'Error': result_text = 'Processing Error'
+
     overall_result_div = document.createElement('div')
-    overall_class = 'check-item'  # Base class
-    result_text = f"Overall Result: {results['finalResult']}"
-    
-    # Apply specific class based on the final result
-    if results['finalResult'] == 'Pass':
-        overall_class += ' pass'
-    elif results['finalResult'] == 'Fail':
-        overall_class += ' fail'
-        # Add step failure detail if available
-        if results.get('failStep', 0) > 0:
-            result_text += f" (Failed at Step {results['failStep']})"
-    elif results['finalResult'] == 'Not NHANES':
-        overall_class += ' not-nhanes'
-    elif results['finalResult'] == 'Error':
-        overall_class += ' fail'  # Style errors as failures
-        result_text = 'Processing Error'
-    else:
-        overall_class += ' not-nhanes'
-        result_text = f"Result: {results['finalResult'] or 'Unknown'}"
-    
     overall_result_div.className = overall_class
     overall_result_div.innerHTML = f'<div class="summary">{result_text}</div>'
     results_content.appendChild(overall_result_div)
-    
-    # --- Summary Details Section ---
-    if results.get('details') and isinstance(results['details'], list) and results['details']:
-        summary_details_div = document.createElement('div')
-        summary_details_div.className = 'summary-details'
-        summary_details_div.innerHTML = '<h3>Processing Details:</h3>'
-        
-        summary_list = document.createElement('ul')
-        
-        for detail in results['details']:
-            item = document.createElement('li')
-            item.textContent = detail
-            
-            # Apply inline styles based on prefixes
-            if detail.startswith('✗'):
-                item.style.color = '#dc3545'  # Fail color
-                item.style.fontWeight = 'bold'
-            elif detail.startswith('✓'):
-                item.style.color = '#28a745'  # Pass color
-            elif detail.startswith('⚠️'):
-                item.style.color = '#ffc107'  # Warning color
-                item.style.fontWeight = 'bold'
-            
-            summary_list.appendChild(item)
-        
-        summary_details_div.appendChild(summary_list)
-        results_content.appendChild(summary_details_div)
-    
-    # --- Individual Check Results Section (Collapsible) ---
-    if results.get('checkResults') and isinstance(results['checkResults'], list) and results['checkResults']:
-        checks_section = document.createElement('details')
-        checks_section.className = 'individual-checks'
-        
-        summary_toggle = document.createElement('summary')
-        summary_toggle.innerHTML = '<h3>Individual Check Details ▼</h3>'
-        checks_section.appendChild(summary_toggle)
-        
-        # Add details for each check result
-        for check in results['checkResults']:
-            check_item = document.createElement('div')
-            status_text = ''
-            item_class = 'check-item'  # Base class for styling
-            
-            if check.get('skipped', False):
-                item_class += ' skipped'
-                status_text = '<span style="color:#6c757d; font-weight:bold;">⚪ Skipped</span>'
-            elif check.get('passed', False):
-                item_class += ' pass'
-                status_text = '<span style="color:#28a745; font-weight:bold;">✓ Pass</span>'
-            else:
-                item_class += ' fail'
-                status_text = '<span style="color:#dc3545; font-weight:bold;">✗ Fail</span>'
-            
-            check_item.className = item_class
-            
-            # Populate the check item's content
-            check_item.innerHTML = f"""
-                <h4>{check.get('checkName', 'Unknown Check')}: {status_text}</h4>
-                <p>{check.get('details', 'No details provided.')}</p>
-            """
-            
-            checks_section.appendChild(check_item)
-        
+
+    if results_data.get('details'):
+        summary_details_div = document.createElement('div'); summary_details_div.className = 'summary-details'; summary_details_div.innerHTML = '<h3>Processing Details:</h3>'
+        ul = document.createElement('ul');
+        for detail in results_data['details']:
+            li = document.createElement('li'); li.textContent = detail
+            if detail.startswith('✗'): li.style.color = '#dc3545'; li.style.fontWeight = 'bold'
+            elif detail.startswith('✓'): li.style.color = '#28a745'
+            elif detail.startswith('⚠️'): li.style.color = '#ffc107'; li.style.fontWeight = 'bold'
+            ul.appendChild(li)
+        summary_details_div.appendChild(ul); results_content.appendChild(summary_details_div)
+
+    if results_data.get('checkResults'):
+        checks_section = document.createElement('details'); checks_section.className = 'individual-checks'
+        summary_toggle = document.createElement('summary'); summary_toggle.innerHTML = '<h3>Individual Check Details ▼</h3>'; checks_section.appendChild(summary_toggle)
+        for check in results_data['checkResults']:
+            item = document.createElement('div')
+            is_skipped = check.get('skipped', False)
+            is_passed = check.get('passed', False)
+            status_cls = 'skipped' if is_skipped else ('pass' if is_passed else 'fail')
+            status_icon = '⚪' if status_cls == 'skipped' else ('✓' if status_cls == 'pass' else '✗')
+            status_color = '#6c757d' if status_cls == 'skipped' else ('#28a745' if status_cls == 'pass' else '#dc3545')
+            item.className = f'check-item {status_cls}'
+            details_html = check.get('details', '').replace('\\n', '<br>') 
+            item.innerHTML = f"<h4>{check.get('checkName', 'Unknown')}: <span style='color:{status_color}; font-weight:bold;'>{status_icon} {status_cls[0].upper() + status_cls[1:]}</span></h4><p>{details_html}</p>"
+            checks_section.appendChild(item)
         results_content.appendChild(checks_section)
 
 # Main orchestration function
 def check_nhanes_manuscript(text, title='Untitled Manuscript'):
-    """Main orchestration function"""
-    console.log(f'Checking manuscript: {title}')
+    js.console.log(f'[Python] Checking manuscript: {title}')
     
-    # Check 1: Does it mention NHANES?
     has_nhanes = check_for_nhanes(text)
     
     if not has_nhanes:
@@ -909,221 +954,255 @@ def check_nhanes_manuscript(text, title='Untitled Manuscript'):
         'checkResults': [],
         'details': ["✓ STEP 1: Manuscript mentions NHANES."],
         'finalResult': "",
-        'failStep': 0  # Track which step caused failure
+        'failStep': 0
     }
+
+    references_header_regex = r'(?im)^\\s*(?:References|Bibliography|Literature Cited|Works Cited)\\s*$'
+    match = re.search(references_header_regex, text)
+    text_for_checks = text 
+    if match:
+        text_for_checks = text[:match.start()]
+        js.console.log(f"[Python] 'References' section found. Truncating text for most checks. Original length: {len(text)}, Truncated length: {len(text_for_checks)}")
+    else:
+        js.console.log("[Python] 'References' section not found by regex. Using full text for checks.")
     
-    # Define checks in order
-    checks = [
+    author_red_flags_func = lambda truncated_text_arg: check_author_red_flags(text, truncated_text_arg) 
+
+    checks_definitions = [
         {"name": "2a. NHANES Citation", "func": check_nhanes_citation, "step": 2, "critical": True},
         {"name": "2b. Survey Design Acknowledgment", "func": check_survey_design_acknowledgment, "step": 2, "critical": True},
         {"name": "2c. Weighting Methodology", "func": check_weighting_methodology, "step": 2, "critical": True},
-        {"name": "3. NHANES Date Range", "func": check_nhanes_date_range, "step": 3, "critical": False},
-        {"name": "4. NHANES Cycle Recency", "func": check_nhanes_cycle_recency, "step": 4, "critical": False},
+        {"name": "3. NHANES Date Range Validation", "func": check_nhanes_date_range, "step": 3, "critical": False},
+        {"name": "4. NHANES Cycle Recency (Odd-Even)", "func": check_nhanes_cycle_recency, "step": 4, "critical": False},
         {"name": "5. Title Template Check", "func": check_title_template, "step": 5, "critical": False},
-        {"name": "6. Author Red Flags", "func": check_author_red_flags, "step": 6, "critical": False}
+        {"name": "6. Author Red Flags", "func": author_red_flags_func, "step": 6, "critical": False}
     ]
     
-    current_step = 1
-    methodology_passed = True  # Specifically track step 2 passes
-    
-    for check in checks:
-        # Update step summary if moving to a new step number
-        if check["step"] > current_step:
-            # Check if Step 2 (Methodology) failed overall before moving on
-            if current_step == 2 and not methodology_passed:
-                results['finalResult'] = "Fail"
-                results['failStep'] = 2
+    current_step_num, step_2_overall_passed = 1, True
+    for check_def in checks_definitions:
+        if check_def["step"] > current_step_num:
+            if current_step_num == 2 and not step_2_overall_passed:
                 results['details'].append("✗ STEP 2: Failed one or more critical methodology checks.")
-                break  # Stop processing critical methodology failure
-            
-            # Log success of the previous step block (if not already failed)
-            if results['finalResult'] != "Fail":
-                results['details'].append(f"✓ STEP {current_step}: Check(s) passed.")
-            
-            current_step = check["step"]  # Move to the new step number
+                results['finalResult'], results['failStep'] = "Fail", 2; break
+            elif results['finalResult'] != "Fail":
+                 results['details'].append(f"✓ STEP {current_step_num}: Check(s) passed or non-critical.")
+            current_step_num = check_def["step"]
+
+        check_res = check_def["func"](text_for_checks) 
+        results['checkResults'].append({'checkName': check_def["name"], **check_res}) 
         
-        # Execute the check function
-        check_result = check["func"](text)
-        results['checkResults'].append({
-            'checkName': check["name"],
-            'passed': check_result.get('passed', False),
-            'details': check_result.get('details', ''),
-            'skipped': check_result.get('skipped', False)
-        })
-        
-        # Handle failed check (only if not skipped)
-        if not check_result.get('passed', False) and not check_result.get('skipped', False):
-            if check["step"] == 2:
-                methodology_passed = False
-            
-            if check["critical"]:
-                results['finalResult'] = "Fail"
-                results['failStep'] = check["step"]
-                if not any(d.startswith('✗ STEP') for d in results['details']):
-                    results['details'].append(f"✗ STEP {check['step']}: Failed critical check \\"{check['name']}\\".")
-                
-                if check["step"] > 2:
-                    break
-            else:
-                results['details'].append(f"⚠️ STEP {check['step']}: Non-critical issue found in check \\"{check['name']}\\".")
+        if not check_res.get('passed') and not check_res.get('skipped'):
+            if check_def["step"] == 2: step_2_overall_passed = False
+            if check_def["critical"] and check_def["step"] != 2: 
+                results['details'].append(f"✗ STEP {check_def['step']}: Failed critical check \\"{check_def['name']}\\".")
+                results['finalResult'], results['failStep'] = "Fail", check_def["step"]; break
+            elif not check_def["critical"]:
+                results['details'].append(f"⚠️ STEP {check_def['step']}: Non-critical issue in \\"{check_def['name']}\\".")
+
+    if results['finalResult'] != "Fail": 
+        if current_step_num == 2 and not step_2_overall_passed:
+            results['details'].append("✗ STEP 2: Failed one or more critical methodology checks.")
+            results['finalResult'], results['failStep'] = "Fail", 2
+        elif not any(d.startswith(f"✓ STEP {current_step_num}") for d in results['details']) and \
+             not any(d.startswith(f"✗ STEP {current_step_num}") for d in results['details']):
+             results['details'].append(f"✓ STEP {current_step_num}: Check(s) passed or non-critical.")
     
-    # Set final results
-    if current_step == 2 and not methodology_passed and results['finalResult'] != "Fail":
-        results['finalResult'] = "Fail"
-        results['failStep'] = 2
-        results['details'].append("✗ STEP 2: Failed one or more critical methodology checks.")
-    
-    # If loop completed and no critical failure occurred, log success for the last step
     if results['finalResult'] != "Fail":
-        results['details'].append(f"✓ STEP {current_step}: Check(s) passed.")
         results['finalResult'] = "Pass"
-        results['details'].append("✓ ALL CRITICAL CHECKS PASSED.")
-    else:
-        if results['failStep'] == 0 and results['isNHANES']:
-            results['failStep'] = current_step
-        
-        results['details'].append(f"✗ Manuscript check failed at Step {results['failStep']}.")
-    
+        if not any(d.startswith('✗') for d in results['details']):
+             results['details'].append("✓ ALL CHECKS COMPLETED SUCCESSFULLY OR WITH NON-CRITICAL ISSUES.")
+    elif results['failStep'] == 0 and results['isNHANES']:
+        results['failStep'] = current_step_num
+        if not any(d.startswith(f"✗ STEP {results['failStep']}") for d in results['details']):
+            results['details'].append(f"✗ Manuscript check failed overall, refer to Step {results['failStep']} details for specific issues.")
     return results
 
 # --- Event Handlers ---
-
-async def handle_file_upload(event):
-    """Handle file upload event"""
-    file = event.target.files[0]
-    if not file:
+async def handle_file_upload(event_proxy): 
+    js.console.log("[Python] handle_file_upload triggered")
+    file_input_el = event_proxy.target 
+    file_list_js = file_input_el.files 
+    if not file_list_js or file_list_js.length == 0:
+        js.console.log("[Python] No file selected.")
         return
     
-    # Clear results
+    file_js_proxy = file_list_js.item(0) 
+    js.console.log(f"[Python] File selected: name='{file_js_proxy.name}', type='{file_js_proxy.type}', size={file_js_proxy.size}")
+
     document.getElementById('results').classList.add('hidden')
     document.getElementById('resultsContent').innerHTML = ''
-    
-    # Show loading
-    window.NHANESBridge.showUILoading(f"Loading file: {str(file.name)}...")
+    window.NHANESBridge.showUILoading(f"Loading file: {str(file_js_proxy.name)}...")
     
     try:
-        # Process file based on extension
-        filename = str(file.name)
-        extension_parts = filename.split('.')
-        file_extension = extension_parts[-1].lower() if len(extension_parts) > 1 else ""
-        
-        if file_extension == 'txt':
-            content = await read_text_file(file)
-        elif file_extension == 'docx':
-            content = await read_docx_file(file)
-        elif file_extension == 'pdf':
-            # Create progress callback
-            def update_progress(current, total):
-                window.NHANESBridge.showUILoading(f"Loading PDF: {filename} ({current}/{total} pages)...")
-            
-            progress_proxy = create_proxy(update_progress)
-            content = await read_pdf_file(file, progress_proxy)
+        filename_py = str(file_js_proxy.name) 
+        ext = filename_py.split('.')[-1].lower() if '.' in filename_py else ""
+        content = ""
+        js.console.log(f"[Python] Processing file extension: {ext}")
+
+        if ext == 'txt':
+            js.console.log("[Python] Calling read_text_file")
+            content = await read_text_file(file_js_proxy)
+        elif ext == 'docx':
+            js.console.log("[Python] Calling read_docx_file")
+            content = await read_docx_file(file_js_proxy)
+        elif ext == 'pdf':
+            js.console.log("[Python] Calling read_pdf_file")
+            def update_pdf_progress(current_page, total_pages):
+                window.NHANESBridge.showUILoading(f"Loading PDF: {filename_py} ({current_page}/{total_pages} pages)...")
+            progress_proxy_for_js = create_proxy(update_pdf_progress)
+            content = await read_pdf_file(file_js_proxy, progress_proxy_for_js)
         else:
-            error_msg = f"Unsupported file type: .{file_extension}. Please upload a .txt, .docx, or .pdf file."
+            error_msg = f"Unsupported file type: .{ext}. Please upload .txt, .docx, or .pdf."
+            js.console.error(f"[Python] {error_msg}")
             document.getElementById('manuscriptText').value = error_msg
-            alert(error_msg)
+            js.alert(error_msg)
             window.NHANESBridge.hideUILoading(False)
             return
-            
-        # Update textarea with content
+        
+        js.console.log(f"[Python] File content retrieved. Length: {len(content) if content else 0}. Preview: {str(content)[:100] if content else 'None'}")
         document.getElementById('manuscriptText').value = content
+        js.console.log("[Python] Textarea value set.")
         window.NHANESBridge.hideUILoading(True)
+        js.console.log("[Python] hideUILoading called after file processing.")
         
     except Exception as e:
-        error_msg = f"Error processing file: {str(e)}"
+        js.console.error(f"[Python] Exception type in handle_file_upload: {type(e)}")
+        js.console.error(f"[Python] Exception object in handle_file_upload: {repr(e)}")
+        
+        py_tb = traceback.format_exc()
+        js.console.error(f"[Python] Python Traceback in handle_file_upload:\\n{py_tb}")
+
+        error_msg_str = str(e)
+        
+        if isinstance(e, JsException):
+            js.console.error(f"[Python] JsException caught: name='{str(e.name)}', message='{str(e.message)}'")
+            if hasattr(e, 'stack') and e.stack: 
+                js.console.error(f"[Python] JsException stack: {str(e.stack)}")
+            if e.message: 
+                error_msg_str = f"{str(e.name)}: {str(e.message)}" if e.name else str(e.message)
+        
+        if "is_undefined" in error_msg_str or (isinstance(e, JsException) and e.message and "undefined" in str(e.message).lower()):
+            error_msg = "Error processing file: An undefined error occurred from a JavaScript library. Check console for details."
+        elif "Could not find file in options" in error_msg_str : 
+             error_msg = "Error processing DOCX: Mammoth.js could not find file data. Check console."
+        elif "'str' object is not callable" in error_msg_str:
+             error_msg = "Internal error: A function was unexpectedly a string. Check console."
+        else:
+            error_msg = f"Error processing file: {error_msg_str}"
+
         document.getElementById('manuscriptText').value = error_msg
-        alert(error_msg)
+        js.alert(error_msg)
         window.NHANESBridge.hideUILoading(False)
+    finally:
+        if file_input_el: # file_input_el is defined in the scope of handle_file_upload
+            try:
+                file_input_el.value = '' 
+                js.console.log("[Python] File input cleared.")
+            except Exception as clear_ex:
+                js.console.error(f"[Python] Error clearing file input: {str(clear_ex)}")
+
 
 def handle_check_button(event):
-    """Handle check button click"""
-    manuscript_text = document.getElementById('manuscriptText').value
+    ta = document.getElementById('manuscriptText'); text = ta.value
+    if not text.strip() or text.startswith("Loading") or text.startswith("Error") or text.startswith("Unsupported"):
+        js.alert('Please paste manuscript text or upload a valid file first.'); return
+    document.getElementById('results').classList.add('hidden'); window.NHANESBridge.showUILoading("Running NHANES checks...")
     
-    if not manuscript_text.strip() or manuscript_text.startswith("Loading") or manuscript_text.startswith("Error") or manuscript_text.startswith("Unsupported"):
-        alert('Please wait for loading to complete or upload a valid file content.')
-        return
-        
-    document.getElementById('results').classList.add('hidden')
-    window.NHANESBridge.showUILoading("Running NHANES checks...")
-    
-    try:
-        # Run the checks
-        results = check_nhanes_manuscript(manuscript_text, "Manuscript")
-        display_results(results)
-    except Exception as e:
-        console.error("Error during manuscript check:", e)
-        # Display error results
-        error_results = {
-            'finalResult': "Error",
-            'details': [f"An unexpected error occurred during analysis: {str(e)}"],
-            'checkResults': []
-        }
-        display_results(error_results)
-    finally:
-        window.NHANESBridge.hideUILoading(True)
-        # Scroll to results if needed
-        if document.getElementById('resultsContent').innerHTML.trim() != '':
-            document.getElementById('results').scrollIntoView({'behavior': 'smooth', 'block': 'start'})
+    async def run_checks_async():
+        try: 
+            check_results_obj = check_nhanes_manuscript(text, "Manuscript")
+            display_results(check_results_obj)
+        except Exception as e:
+            py_tb = traceback.format_exc() 
+            js.console.error(f"[Python] Error in handle_check_button (run_checks_async): {str(e)}\\nTraceback:\\n{py_tb}")
+            display_results({'finalResult': "Error", 'details': [f"An unexpected error occurred during analysis: {str(e)}"], 'checkResults': []})
+        finally:
+            window.NHANESBridge.hideUILoading(True)
+            results_content_el = document.getElementById('resultsContent')
+            if results_content_el:
+                html_content_py_str = str(results_content_el.innerHTML)
+                if html_content_py_str.strip(): 
+                    scroll_options_dict = {'behavior': 'smooth', 'block': 'start'}
+                    scroll_options_js = to_js(scroll_options_dict, dict_converter=js.Object.fromEntries)
+                    document.getElementById('results').scrollIntoView(scroll_options_js)
+    js.setTimeout(create_proxy(run_checks_async), 10) 
 
 def handle_clear_button(event):
-    """Handle clear button click"""
-    document.getElementById('manuscriptText').value = ''
-    document.getElementById('manuscriptFile').value = ''
-    document.getElementById('results').classList.add('hidden')
-    document.getElementById('resultsContent').innerHTML = ''
+    document.getElementById('manuscriptText').value = ''; document.getElementById('manuscriptFile').value = ''
+    document.getElementById('results').classList.add('hidden'); document.getElementById('resultsContent').innerHTML = ''
     document.getElementById('checkButton').disabled = True
 
 # --- Initialization ---
-
 def initialize():
-    """Initialize the application"""
-    console.log("Initializing NHANES Checker (Python version)")
-    
-    # Hide the loading message and show the app
-    document.getElementById('pyodideLoading').classList.add('hidden')
-    document.getElementById('appContent').classList.remove('hidden')
-    
-    # Set up event listeners
-    check_button = document.getElementById('checkButton')
-    if check_button:
-        check_button.addEventListener('click', create_proxy(handle_check_button))
-    
-    file_input = document.getElementById('manuscriptFile')
-    if file_input:
-        file_input.addEventListener('change', create_proxy(handle_file_upload))
-    
-    clear_button = document.getElementById('clearButton')
-    if clear_button:
-        clear_button.addEventListener('click', create_proxy(handle_clear_button))
-    
-    # Set up textarea input change detection
-    textarea = document.getElementById('manuscriptText')
-    if textarea:
-        def enable_check_if_text(event):
-            check_button.disabled = not bool(textarea.value.strip())
-        textarea.addEventListener('input', create_proxy(enable_check_if_text))
-    
-    # Initial UI state
-    window.NHANESBridge.hideUILoading(False)
-    console.log("NHANES Checker initialized and ready")
+    js.console.log("[Python] Initializing NHANES Checker...")
+    try:
+        js.console.log(f"[Python DEBUG] Type of js.eval in initialize: {type(js.eval)}")
+        js.console.log(f"[Python DEBUG] Type of to_js in initialize: {type(to_js)}")
+        js.console.log(f"[Python DEBUG] Type of js.Object in initialize: {type(js.Object)}")
+        if hasattr(js.Object, "fromEntries"):
+            js.console.log(f"[Python DEBUG] Type of js.Object.fromEntries in initialize: {type(js.Object.fromEntries)}")
+            js.eval("globalThis.pyodideCheckInstance = (obj, constr) => obj instanceof constr;")
+            js.console.log("[Python DEBUG] globalThis.pyodideCheckInstance helper defined.")
+            is_callable_js = js.globalThis.pyodideCheckInstance(js.Object.fromEntries, js.window.Function)
+            js.console.log(f"[Python DEBUG] js.Object.fromEntries is JS Function (via helper): {is_callable_js}")
+        else:
+            js.console.log("[Python DEBUG] js.Object has no 'fromEntries' attr in initialize.")
+        
+        js.eval("1+1") 
+        js.console.log("[Python DEBUG] js.eval test call successful.")
+    except Exception as e_init_eval:
+        js.console.error(f"[Python DEBUG] Error during initial debug checks: {str(e_init_eval)}")
+        py_tb_init = traceback.format_exc()
+        js.console.error(f"[Python DEBUG] Traceback for init debug error:\\n{py_tb_init}")
 
-# Entry point - initialize everything
+
+    document.getElementById('pyodideLoading').classList.add('hidden'); document.getElementById('appContent').classList.remove('hidden')
+    
+    cb = document.getElementById('checkButton'); fi = document.getElementById('manuscriptFile')
+    clb = document.getElementById('clearButton'); ta = document.getElementById('manuscriptText')
+
+    if cb: cb.addEventListener('click', create_proxy(handle_check_button))
+    if fi: fi.addEventListener('change', create_proxy(handle_file_upload))
+    if clb: clb.addEventListener('click', create_proxy(handle_clear_button))
+    if ta:
+        def enable_check_if_text_py_callback(event_proxy): 
+            text_val = ta.value 
+            current_text = text_val.strip()
+            is_placeholder = current_text.startswith("Loading") or \\
+                             current_text.startswith("Error") or \\
+                             current_text.startswith("Unsupported")
+            cb.disabled = not bool(current_text) or is_placeholder
+        
+        ta.addEventListener('input', create_proxy(enable_check_if_text_py_callback))
+        enable_check_if_text_py_callback(None)
+    
+    if cb and ta and not ta.value.strip():
+        cb.disabled = True
+
+    js.console.log("[Python] NHANES Checker initialized and ready.")
+
 initialize()
-        `;
-        
-        // Run the Python code
+`;
         await pyodide.runPythonAsync(pythonCode);
-        
         console.log("Python implementation loaded successfully!");
       } catch (error) {
-        console.error("Error initializing Pyodide:", error);
+        console.error("Error initializing Pyodide or Python script:", error);
+        let err_stack = "No stack available.";
+        if (error.stack) { 
+            err_stack = error.stack;
+        } else if (window.pyodide && error.name === "PythonError") { 
+             try {
+                err_stack = window.pyodide.runPython('import traceback; traceback.format_exc()');
+             } catch (tb_err) {
+                err_stack = "Could not format Python traceback from JS: " + tb_err.message;
+             }
+        }
         document.getElementById('pyodideLoading').innerHTML = 
           '<div style="color: #dc3545; font-weight: bold;">Error loading Python environment: ' + 
-          error.message + '</div><div>Please refresh the page to try again.</div>';
+          error.message + '</div><div>Traceback: <pre>' + err_stack + '</pre></div>' +
+          '<div>Please refresh the page to try again.</div>';
       }
     }
-    
-    // Start the application
     main();
   </script>
 </body>
