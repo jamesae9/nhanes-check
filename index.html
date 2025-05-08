@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NHANES Manuscript Checker (Python)</title>
+  <title>NHANES Manuscript Checker (Python)</title> <!-- Reverted Title -->
   
   <!-- Document processing libraries -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.19/mammoth.browser.min.js"></script>
@@ -131,7 +131,7 @@
 </head>
 <body>
   <div class="container">
-    <h1>NHANES Manuscript Checker (Python)</h1>
+    <h1>NHANES Manuscript Checker (Python)</h1> <!-- Reverted Title -->
     
     <div id="pyodideLoading" class="pyodide-loading">
       <div>Loading Python environment... Please wait.</div>
@@ -154,7 +154,7 @@
         </div>
       </div>
       <div class="results-section hidden" id="results">
-        <h2>Manuscript Check Results</h2>
+        <h2>NHANES Manuscript Check Results</h2> <!-- Reverted Header -->
         <div id="resultsContent"></div>
       </div>
     </div>
@@ -165,7 +165,7 @@
   </div>
 
   <script>
-    window.NHANESBridge = {
+    window.NHANESBridge = { // Keep name or rename if preferred
       async fetchTextFromFile(file) {
         return new Promise((resolve, reject) => {
           const reader = new FileReader();
@@ -231,91 +231,97 @@ from datetime import datetime
 
 # --- NHANES Checker Functions ---
 def check_for_nhanes(text):
+    # Simple check if the text mentions NHANES
     nhanes_regex = r'\\bNHANES\\b|\\bNational Health and Nutrition Examination Survey\\b'
     return bool(re.search(nhanes_regex, text, re.IGNORECASE))
 
-def check_nhanes_citation(text):
-    citation_patterns = [
-        r'Centers for Disease Control and Prevention \\(CDC\\)',
-        r'National Center for Health Statistics \\(NCHS\\)',
-        r'https?://www\\.cdc\\.gov/nchs/nhanes',
-        r'NHANES protocol was approved by the NCHS Research Ethics Review Board',
-        r'NHANES data are publicly available'
-    ]
-    found_patterns = []
-    for pattern in citation_patterns:
-        if re.search(pattern, text, re.IGNORECASE):
-            found_patterns.append(pattern) 
-    
-    has_methods_section = bool(re.search(r'\\b(?:methods?|methodology)\\b', text, re.IGNORECASE))
-    
-    if len(found_patterns) >= 1 and has_methods_section:
-        return {'passed': True, 'details': f'NHANES properly cited. Found {len(found_patterns)} citation elements and methods section.'}
-    else:
-        issues = []
-        if len(found_patterns) < 2: issues.append(f'Missing proper NHANES citation elements (found only {len(found_patterns)}, need at least 2)')
-        if not has_methods_section: issues.append("No apparent methods section found")
-        return {'passed': False, 'details': f'NHANES citation issues: {"; ".join(issues)}'}
+# --- Removed Functions ---
+# check_nhanes_citation
+# check_survey_design_acknowledgment
+# check_weighting_methodology
+# check_nhanes_date_range (logic merged into new function)
+# check_nhanes_cycle_recency (logic merged into new function)
 
-def check_survey_design_acknowledgment(text):
-    return {'passed': True, 'skipped': True, 'details': "Check for Survey Design Acknowledgment is currently disabled."}
-
-def check_weighting_methodology(text):
-    return {'passed': True, 'skipped': True, 'details': "Check for Weighting Methodology is currently disabled."}
-
-def check_nhanes_date_range(text):
-    MIN_PLAUSIBLE_YEAR = 1950
+# --- NEW Combined Date Check Function ---
+def check_nhanes_date_context_and_validation(text):
+    """
+    Finds YYYY-YYYY ranges near NHANES mentions, validates them for 
+    plausibility (start>=1959), odd-even pattern, and recency (end within last 15 years).
+    """
+    MIN_START_YEAR = 1959 
     current_year = datetime.now().year
-    MAX_PLAUSIBLE_YEAR = current_year
-    cycle_regex = r'(?:NHANES|National Health and Nutrition Examination Survey)?\\s*(?:data)?\\s*(?:from)?\\s*(?:the)?\\s*(?:years?)?\\s*(?:(?:19|20)\\d{2})(?:\\s*[-–—]\\s*(?:(?:19|20)\\d{2}))?|(?:\s*(?:19|20)\\d{2})(?:\\s*[-–—]\\s*(?:(?:19|20)\\d{2}))?\\s*(?:NHANES|National Health and Nutrition Examination Survey)'
-    
-    matches = re.findall(cycle_regex, text, re.IGNORECASE) or []
-    found_valid_range, found_invalid_range, found_implausible_range = False, False, False
-    valid_range_details, invalid_range_details, implausible_range_details = [], [], []
-    
-    if not matches:
-        generic_range_regex = r'(?:19|20)\\d{2}\\s*[-–—]\\s*(?:19|20)\\d{2}'
-        matches = re.findall(generic_range_regex, text) or []
-    
-    if not matches:
-        return {'passed': True, 'details': "No potential year ranges found to validate."}
-    
-    year_regex = r'(?:19|20)\\d{2}'
-    
-    for match_text in matches:
-        year_pairs_in_match = re.findall(r'((?:19|20)\\d{2})\\s*[-–—]\\s*((?:19|20)\\d{2})', match_text)
-        if not year_pairs_in_match: continue
+    MAX_END_YEAR = current_year
+    RECENCY_YEAR_THRESHOLD = current_year - 15
 
-        for start_year_str, end_year_str in year_pairs_in_match:
-            start_year, end_year = int(start_year_str), int(end_year_str)
-            is_plausible = (MIN_PLAUSIBLE_YEAR <= start_year <= end_year <= MAX_PLAUSIBLE_YEAR)
-            
-            if not is_plausible:
-                found_implausible_range = True
-                implausible_range_details.append(f'{start_year}-{end_year} (in \\"{match_text}\\")')
+    # Regex patterns need double backslashes for JS template literal
+    pattern1 = r'\\b(?:NHANES|National\\sHealth\\sand\\sNutrition\\sExamination\\sSurvey)\\b[^\\d\\n\\(]*?\\(?(\\d{4})\\)?\\s*[-–—]\\s*\\(?(\\d{4})\\)?'
+    pattern2 = r'\\(?(\\d{4})\\)?\\s*[-–—]\\s*\\(?(\\d{4})\\)?[^\\d\\n]*?\\b(?:NHANES|National\\sHealth\\sand\\sNutrition\\sExamination\\sSurvey)\\b'
+    combined_regex = f"({pattern1})|({pattern2})"
+
+    found_ranges = {} 
+
+    for match in re.finditer(combined_regex, text, re.IGNORECASE):
+        start_year_str, end_year_str = None, None
+        if match.group(2) and match.group(3): 
+            start_year_str, end_year_str = match.group(2), match.group(3)
+        elif match.group(5) and match.group(6):
+            start_year_str, end_year_str = match.group(5), match.group(6)
+
+        if start_year_str and end_year_str:
+            try:
+                start_year = int(start_year_str)
+                end_year = int(end_year_str)
+                range_key = f"{start_year}-{end_year}"
+
+                if range_key in found_ranges: continue
+
+                is_plausible = (start_year >= MIN_START_YEAR and 
+                                end_year <= MAX_END_YEAR and 
+                                start_year <= end_year)
+                is_odd_even = (start_year % 2 == 1 and end_year % 2 == 0) if is_plausible else False
+                is_recent = (end_year >= RECENCY_YEAR_THRESHOLD) if is_plausible else False
+                is_valid = is_plausible and is_odd_even and is_recent
+
+                found_ranges[range_key] = {
+                    "plausible": is_plausible, "odd_even": is_odd_even,
+                    "recent": is_recent, "valid": is_valid
+                }
+            except ValueError:
+                js.console.warn(f"[Python] Could not parse years from match: {start_year_str}-{end_year_str}")
                 continue
+
+    if not found_ranges:
+        return {'passed': True, 'details': "No date ranges found near NHANES mentions."}
+
+    details_list = ["Date ranges found near NHANES mentions:"]
+    overall_valid_found = False
+    for range_key, status in found_ranges.items():
+        detail = f"- {range_key}: "
+        valid_parts = []
+        invalid_parts = []
+        if status["plausible"]: valid_parts.append("Plausible")
+        else: invalid_parts.append("Not Plausible")
+        if status["odd_even"]: valid_parts.append("Odd-Even OK")
+        else: invalid_parts.append("Fails Odd-Even")
+        if status["recent"]: valid_parts.append("Recent")
+        else: invalid_parts.append("Not Recent")
             
-            if start_year % 2 == 1 and end_year % 2 == 0:
-                found_valid_range = True
-                valid_range_details.append(f"{start_year}-{end_year}")
-            else:
-                found_invalid_range = True
-                invalid_range_details.append(f'{start_year}-{end_year} (in \\"{match_text}\\")')
+        if status["valid"]:
+            detail += "VALID (✓ Plausible, ✓ Odd-Even, ✓ Recent)"
+            overall_valid_found = True
+        else:
+            detail += f"INVALID (Plausible: {'Yes' if status['plausible'] else 'No'}, "
+            detail += f"Odd-Even: {'Yes' if status['odd_even'] else 'No'}, "
+            detail += f"Recent: {'Yes' if status['recent'] else 'No'})"
+        details_list.append(detail)
+
+    summary = "Overall Summary: " + ("At least one valid date range found associated with NHANES." if overall_valid_found else "No date ranges associated with NHANES met all validation criteria (Plausible, Odd-Even, Recent).")
+    details_list.append(summary)
     
-    details, passed = "", True
-    if found_valid_range:
-        details = f"Valid OddStart-EvenEnd date range(s) found: {', '.join(list(set(valid_range_details)))}."
-        if found_invalid_range: details += f" (Also found plausible ranges failing rule: {', '.join(list(set(invalid_range_details)))})"
-        if found_implausible_range: details += f" (Implausible ranges like {', '.join(list(set(implausible_range_details)))} ignored)."
-    elif found_invalid_range:
-        passed = False
-        details = f"No valid OddStart-EvenEnd ranges. Found issues: {', '.join(list(set(invalid_range_details)))}."
-        if found_implausible_range: details += f" (Implausible ranges like {', '.join(list(set(implausible_range_details)))} ignored)."
-    elif found_implausible_range:
-        details = f"Found number ranges, filtered as unlikely year ranges (e.g., {', '.join(list(set(implausible_range_details)))})."
-    else:
-        details = "Could not definitively identify plausible year ranges for validation."
-    return {'passed': passed, 'details': details}
+    passed = overall_valid_found 
+    return {'passed': passed, 'details': "\\n".join(details_list)}
+
+# --- Remaining Check Functions (Topics, Title, Author Flags) ---
 
 def extract_manuscript_topics(text): 
     title_match = re.search(r'^(?:Title\\s*[:\\s]*)?([^\\n]+)', text, re.IGNORECASE)
@@ -336,34 +342,18 @@ def extract_manuscript_topics(text):
         "Cardiovascular": ["heart", "cardiac", "cardiovascular", "blood pressure", "hypertension", "cholesterol", "stroke", "atherosclerosis", "vascular", "lipids", "arrhythmia"],
         "Nutrition/Diet": ["diet", "dietary", "food", "nutrition", "nutrient", "intake", "consumption", "supplement", "eating pattern", "malnutrition", "vitamin", "mineral", "fiber", "calories"],
         "Metabolic/Endocrine": ["diabetes", "insulin", "glucose", "metabolic syndrome", "obesity", "BMI", "body mass index", "thyroid", "endocrine", "adiposity", "waist circumference", "hormone"],
-        "Epidemiology/Public Health": [
-            "prevalence", "incidence", "risk factor", "population", "demographic", 
-            "public health", "mortality", "morbidity", "surveillance", "trends", 
-            "disparities", "socioeconomic", "nationally representative", "cohort", 
-            "prognostic", "prognostic indicator", "nhanes" 
-        ],
+        "Epidemiology/Public Health": ["prevalence", "incidence", "risk factor", "population", "demographic", "public health", "mortality", "morbidity", "surveillance", "trends", "disparities", "socioeconomic", "nationally representative", "cohort", "prognostic", "prognostic indicator", "nhanes" ],
         "Mental Health/Neurology": ["depression", "anxiety", "psychiatric", "mental", "psychological", "cognitive", "cognition", "neurologic", "stress", "mood", "suicide"],
-        "Respiratory": [
-            "lung", "pulmonary", "respiratory", "asthma", "COPD", "breathing", 
-            "sleep apnea", "spirometry", "chronic lower respiratory disease", 
-            "influenza", "pneumonia"
-        ],
+        "Respiratory": ["lung", "pulmonary", "respiratory", "asthma", "COPD", "breathing", "sleep apnea", "spirometry", "chronic lower respiratory disease", "influenza", "pneumonia"],
         "Oncology": ["cancer", "tumor", "oncology", "malignancy", "carcinoma", "neoplasm"],
         "Pediatrics": ["child", "children", "adolescent", "pediatric", "youth", "infant", "growth", "development"],
         "Geriatrics": ["elderly", "older adults", "aging", "geriatric", "seniors", "frailty"],
         "Renal/Urology": ["kidney", "renal", "nephrology", "chronic kidney disease", "CKD", "urinary", "urology"],
-        "Musculoskeletal/Physical Activity": [
-            "bone", "muscle", "physical activity", "exercise", "sedentary", 
-            "osteoporosis", "arthritis", "sarcopenia", "fitness", 
-            "orthopedic", "musculoskeletal", "spine"
-        ],
+        "Musculoskeletal/Physical Activity": ["bone", "muscle", "physical activity", "exercise", "sedentary", "osteoporosis", "arthritis", "sarcopenia", "fitness", "orthopedic", "musculoskeletal", "spine"],
         "Environmental Health": ["exposure", "pollutant", "environment", "toxin", "heavy metal", "pesticide", "air quality", "lead", "mercury", "cadmium"],
         "Infectious Disease": ["infection", "virus", "bacteria", "antibody", "vaccine", "hepatitis", "HIV", "influenza", "pneumonia"],
         "Gastroenterology": ["gut", "gastrointestinal", "liver", "hepatic", "digestive"],
-        "Allergy/Immunology": [ 
-            "allergy", "asthma", "immune", "inflammation", "antibody", "inflammatory marker",
-            "neutrophil", "platelet", "monocyte", "lymphocyte", "pan-immune"
-        ]
+        "Allergy/Immunology": [ "allergy", "asthma", "immune", "inflammation", "antibody", "inflammatory marker", "neutrophil", "platelet", "monocyte", "lymphocyte", "pan-immune"]
     }
     domain_scores = {domain: 0 for domain in health_domains}
     for domain, keywords in health_domains.items():
@@ -384,72 +374,6 @@ def extract_manuscript_topics(text):
     
     return final_top_domains if final_top_domains else ["General Health/Mixed"]
 
-def check_nhanes_cycle_recency(text): 
-    MIN_PLAUSIBLE_YEAR, current_year = 1950, datetime.now().year
-    MAX_PLAUSIBLE_YEAR = current_year
-    
-    nhanes_then_date_range_regex = r'\\b(?:NHANES|National\\sHealth\\sand\\sNutrition\\sExamination\\sSurvey)\\b[^\\d\\n]*?((?:19|20)\\d{2})\\s*[-–—]\\s*((?:19|20)\\d{2})'
-    
-    matches = re.findall(nhanes_then_date_range_regex, text, re.IGNORECASE)
-    
-    found_valid_range = False
-    found_invalid_range = False
-    found_implausible_range = False
-    valid_range_details = []
-    invalid_range_details = []
-    implausible_range_details = []
-    
-    if not matches:
-        return {
-            'passed': True, 
-            'details': "No date ranges found closely following an NHANES mention with the flexible pattern."
-        }
-    
-    for year_pair in matches: 
-        if len(year_pair) == 2:
-            start_year = int(year_pair[0])
-            end_year = int(year_pair[1])
-            match_display_text = f"NHANES ... {start_year}-{end_year}" 
-            
-            is_plausible = (
-                start_year >= MIN_PLAUSIBLE_YEAR and
-                end_year <= MAX_PLAUSIBLE_YEAR and
-                end_year >= start_year
-            )
-            
-            if not is_plausible:
-                found_implausible_range = True
-                implausible_range_details.append(f"{start_year}-{end_year} (from context like \\"{match_display_text}\\")")
-                continue
-            
-            if start_year % 2 == 1 and end_year % 2 == 0:
-                found_valid_range = True
-                valid_range_details.append(f"{start_year}-{end_year}")
-            else:
-                found_invalid_range = True
-                invalid_range_details.append(f"{start_year}-{end_year} (from context like \\"{match_display_text}\\")")
-    
-    details = ""
-    passed = True 
-    
-    if found_valid_range:
-        passed = True
-        details = f"Valid OddStart-EvenEnd date range(s) closely following an NHANES mention found: {', '.join(list(set(valid_range_details)))}."
-        if found_invalid_range:
-            details += f" (Also found plausible ranges following NHANES mentions that failed the OddStart-EvenEnd rule: {', '.join(list(set(invalid_range_details)))})"
-    elif found_invalid_range: 
-        passed = False
-        details = f"No valid OddStart-EvenEnd ranges confirmed closely following NHANES mentions. Found plausible ranges with issues: {', '.join(list(set(invalid_range_details)))}."
-    elif found_implausible_range: 
-        passed = True 
-        details = "Found date ranges closely following NHANES mentions, but they were filtered out as implausible (e.g., out of date bounds)."
-    else: 
-        passed = True 
-        details = "Patterns matching NHANES followed by years were found, but specific year pairs could not be validated."
-
-    return {'passed': passed, 'details': details}
-
-
 def check_title_template(text): 
     title_regex_pattern = r'^(?:Title\\s*[:\\s]*)?([^\\n]+)'
     title_match = re.search(title_regex_pattern, text, re.IGNORECASE)
@@ -463,88 +387,40 @@ def check_title_template(text):
     title = title_match.group(1).strip()
     title_lower = title.lower()
 
-    association_keywords = [
-        'association', 'relationship', 'correlation', 'link', 
-        'impact', 'effect', 'influence', 'predictor', 'association with'
-    ]
+    association_keywords = ['association', 'relationship', 'correlation', 'link', 'impact', 'effect', 'influence', 'predictor', 'association with']
     association_prepositions = ['between', 'among', 'of', 'on', 'with']
-    
     found_association_keyword = any(re.search(r'\\b' + re.escape(kw) + r'\\b', title_lower) for kw in association_keywords)
     found_association_preposition = any(re.search(r'\\b' + re.escape(prep) + r'\\b', title_lower) for prep in association_prepositions)
     has_association_structure = found_association_keyword and found_association_preposition
 
-    population_indicators = [
-        'U.S. adults', 'US adults', 'American adults', 'U.S. population', 'US population',
-        'adults', 'children', 'adolescents', 'participants', 'individuals', 
-        'subjects', 'men', 'women', 'patients', 'older adults', 'elderly'
-    ]
+    population_indicators = ['U.S. adults', 'US adults', 'American adults', 'U.S. population', 'US population','adults', 'children', 'adolescents', 'participants', 'individuals', 'subjects', 'men', 'women', 'patients', 'older adults', 'elderly']
     has_population_statement = any(re.search(r'\\b' + re.escape(pop_term) + r'\\b', title_lower) for pop_term in population_indicators)
 
-
-    study_design_keywords = [
-        'cross-sectional', 'cross sectional', 'longitudinal', 'cohort', 
-        'survey', 'analysis', 'study', 'examination'
-    ] 
+    study_design_keywords = ['cross-sectional', 'cross sectional', 'longitudinal', 'cohort', 'survey', 'analysis', 'study', 'examination'] 
     has_study_design = any(re.search(r'\\b' + re.escape(design) + r'\\b', title_lower) for design in study_design_keywords)
 
     nhanes_with_colon_pattern = r':.*?\\b(NHANES|National Health and Nutrition Examination Survey)\\b|\\b(NHANES|National Health and Nutrition Examination Survey)\\b:'
     specifies_nhanes_with_colon = bool(re.search(nhanes_with_colon_pattern, title, re.IGNORECASE)) 
     
-    issues_found = []
-    details_list = []
+    issues_found = []; details_list = []
+    if has_association_structure: issues_found.append("association structure"); details_list.append("✓ Title appears to outline an association/relationship.")
+    else: details_list.append("✗ Title may not clearly outline an association/relationship.")
+    if has_population_statement: issues_found.append("population statement"); details_list.append("✓ Title appears to state a population of interest.")
+    else: details_list.append("✗ Title may not clearly state a population of interest.")
+    if has_study_design: issues_found.append("study design mentioned"); details_list.append("✓ Title appears to mention a study design or type.")
+    else: details_list.append("✗ Title may not mention a study design or type.")
+    if specifies_nhanes_with_colon: issues_found.append("NHANES with colon"); details_list.append("✓ Title specifies NHANES as data source with colon formatting.")
+    else: details_list.append("○ Title does not use the specific ': NHANES' or 'NHANES:' formatting.")
 
-    if has_association_structure:
-        issues_found.append("association structure")
-        details_list.append("✓ Title appears to outline an association/relationship.")
-    else:
-        details_list.append("✗ Title may not clearly outline an association/relationship.")
-
-    if has_population_statement:
-        issues_found.append("population statement")
-        details_list.append("✓ Title appears to state a population of interest.")
-    else:
-        details_list.append("✗ Title may not clearly state a population of interest.")
-
-    if has_study_design:
-        issues_found.append("study design mentioned")
-        details_list.append("✓ Title appears to mention a study design or type.")
-    else:
-        details_list.append("✗ Title may not mention a study design or type.")
-
-    if specifies_nhanes_with_colon:
-        issues_found.append("NHANES with colon")
-        details_list.append("✓ Title specifies NHANES as data source with colon formatting.")
-    else:
-        details_list.append("○ Title does not use the specific ': NHANES' or 'NHANES:' formatting.")
-
-    number_of_template_indicators = 0
-    if has_association_structure: number_of_template_indicators +=1
-    if has_population_statement: number_of_template_indicators +=1
-    if has_study_design: number_of_template_indicators +=1
-    if specifies_nhanes_with_colon: number_of_template_indicators += 1 
-
-    passed = True
-    summary_detail = f"Title: \\"{title}\\". "
-
-    if number_of_template_indicators >= 3: 
-        passed = False
-        summary_detail += f"Appears templated based on {number_of_template_indicators} common elements ({', '.join(issues_found)})."
-    elif number_of_template_indicators == 2 and specifies_nhanes_with_colon: 
-        passed = False
-        summary_detail += f"Appears somewhat templated due to 'NHANES with colon' and one other element ({', '.join(issues_found)})."
-    elif number_of_template_indicators >= 2: 
-         summary_detail += f"Shows some signs of templating with {number_of_template_indicators} elements ({', '.join(issues_found)})."
-    else: 
-        summary_detail += "Does not show strong signs of common templating patterns."
-        if number_of_template_indicators > 0 : 
-             summary_detail += f" (Found {', '.join(issues_found)})."
-
+    number_of_template_indicators = len(issues_found)
+    passed = True; summary_detail = f"Title: \\"{title}\\". "
+    if number_of_template_indicators >= 3: passed = False; summary_detail += f"Appears templated based on {number_of_template_indicators} common elements ({', '.join(issues_found)})."
+    elif number_of_template_indicators == 2 and specifies_nhanes_with_colon: passed = False; summary_detail += f"Appears somewhat templated due to 'NHANES with colon' and one other element ({', '.join(issues_found)})."
+    elif number_of_template_indicators >= 2: summary_detail += f"Shows some signs of templating with {number_of_template_indicators} elements ({', '.join(issues_found)})."
+    else: summary_detail += "Does not show strong signs of common templating patterns.";
+    if number_of_template_indicators > 0 and passed: summary_detail += f" (Found {', '.join(issues_found)})."
     full_details = summary_detail + "\\n" + "\\n".join(details_list)
-
-    return {
-        'passed': passed,
-        'details': full_details
-    }
+    return {'passed': passed, 'details': full_details}
 
 def check_author_red_flags(full_manuscript_text, text_for_checks):
     topics = extract_manuscript_topics(text_for_checks) 
@@ -604,7 +480,7 @@ def check_author_red_flags(full_manuscript_text, text_for_checks):
 
     # --- START OF REFINED AFFILIATION PARSING ---
     extracted_departmental_units = []
-    affiliation_lines = [line.strip() for line in author_section_text_block.split('\\n') if line.strip()] # Correct for Python string
+    affiliation_lines = [line.strip() for line in author_section_text_block.split('\\n') if line.strip()] 
     js.console.log(f"[Python DEBUG] Number of lines in author_section_text_block after split: {len(affiliation_lines)}")
 
     affiliation_line_keywords = [
@@ -622,7 +498,6 @@ def check_author_red_flags(full_manuscript_text, text_for_checks):
     ]
     affiliation_marker_regex = r'^\\s*(?:[\\(\\[]?\\s*[a-zA-Z0-9]+[\\s\\)\\]]*[.:])\\s*'
 
-
     for line_idx, line in enumerate(affiliation_lines):
         line_lower = line.lower()
         original_line_for_debug = line
@@ -632,7 +507,7 @@ def check_author_red_flags(full_manuscript_text, text_for_checks):
         
         if '@' in line:
             if not any(aff_kw in line_lower for aff_kw in ["university", "hospital", "institute", "school", "department", "center"]):
-                js.console.log(f"[Python DEBUG] AffilParse Line {line_idx}: Skipped (likely email line): '{original_line_for_debug}'")
+                #js.console.log(f"[Python DEBUG] AffilParse Line {line_idx}: Skipped (likely email line): '{original_line_for_debug}'")
                 continue
         
         if line.count(',') > 2 and sum(c.isdigit() for c in line) < 2 and \
@@ -651,7 +526,6 @@ def check_author_red_flags(full_manuscript_text, text_for_checks):
         line_content_no_marker = re.sub(affiliation_marker_regex, '', line).strip()
 
         if not line_content_no_marker:
-            js.console.log(f"[Python DEBUG] AffilParse Line {line_idx}: Skipped (only marker found): '{original_line_for_debug}'")
             continue
 
         if ',' in line_content_no_marker:
@@ -685,6 +559,7 @@ def check_author_red_flags(full_manuscript_text, text_for_checks):
                                   "japan", "germany", "france", "canada", "australia", "korea", "taiwan",
                                   "shanghai", "beijing", "london", "new york", "tokyo", "seoul", "berlin", "paris"]
             
+            # Python: r'[\[\]()\d\s,.-]+' -> JS: r'[\\(\\[\\]\\d\\s,.-]+'
             is_just_number_or_short_code = bool(re.fullmatch(r'[\\(\\[\\]\\d\\s,.-]+', cleaned_unit)) and len(cleaned_unit) < 5
 
             if cleaned_unit and len(cleaned_unit) > 3 and not cleaned_unit in common_place_names and not is_just_number_or_short_code:
@@ -803,18 +678,14 @@ def check_author_red_flags(full_manuscript_text, text_for_checks):
 
     if contrib_match and contrib_match.group(1):
         author_contributions_section_text_specific = contrib_match.group(1).strip()
-        #js.console.log(f"[Python] 'Author Contributions' section found, length: {len(author_contributions_section_text_specific)}")
         collection_context_regex = r'\\b(?:we|authors?|I|study\s+group|team)\\s+(?:led\s+data\s+collection|collected|gathered|obtained|acquired|assembled|recruited|responsible\s+for\s+data\s+collection|managed\s+data|conducted\s+the\s+study|performed\s+the\s+experiments)\\s+(?:(?:the|these|our)\\s+)?(?:participants|subjects|(?:\\bNHANES\\b\\s+)?data|samples|specimens|information)\\b'
         if re.search(collection_context_regex, author_contributions_section_text_specific, re.IGNORECASE):
             flag_claims_data_collection = True
             collection_flag_details = "Claims data collection in 'Author Contributions': Yes (Potential issue for NHANES secondary analysis)."
-            #js.console.log("[Python] Data collection claim FOUND in Author Contributions.")
         else:
             flag_claims_data_collection = False
             collection_flag_details = "Claims data collection in 'Author Contributions': Section found, but no specific data collection claim detected within it."
-            #js.console.log("[Python] No data collection claim in Author Contributions section.")
     else:
-        #js.console.log("[Python] 'Author Contributions' section not found.")
         collection_flag_details = "Claims data collection in 'Author Contributions': 'Author Contributions' section not found."
     
     all_details = [
@@ -892,12 +763,16 @@ def display_results(results_data):
     results_el.classList.remove('hidden')
     results_content.innerHTML = ''
     
+    # Simplified display for NHANES-only
     final_res = results_data.get('finalResult', 'Unknown')
     fail_step = results_data.get('failStep', 0)
+    
+    document.getElementById('results').getElementsByTagName('h2')[0].textContent = "NHANES Manuscript Check Results"
+
     overall_class = 'check-item '
     if final_res == 'Pass': overall_class += 'pass'
     elif final_res == 'Fail' or final_res == 'Error': overall_class += 'fail'
-    else: overall_class += 'not-nhanes'
+    else: overall_class += 'not-nhanes' # Covers "Not NHANES" initial exit
     
     result_text = f"Overall Result: {final_res}"
     if final_res == 'Fail' and fail_step > 0: result_text += f" (Failed at Step {fail_step})"
@@ -935,15 +810,14 @@ def display_results(results_data):
             checks_section.appendChild(item)
         results_content.appendChild(checks_section)
 
-# Main orchestration function
+# --- REVERTED Main orchestration function ---
 def check_nhanes_manuscript(text, title='Untitled Manuscript'):
-    js.console.log(f'[Python] Checking manuscript: {title}')
+    js.console.log(f'[Python] Checking NHANES manuscript: {title}')
     
-    has_nhanes = check_for_nhanes(text)
-    
-    if not has_nhanes:
+    # Initial check if it's an NHANES paper
+    if not check_for_nhanes(text):
         return {
-            'isNHANES': False,
+            'isNHANES': False, # Explicitly state it's not NHANES
             'finalResult': "Not NHANES",
             'details': ["The manuscript does not appear to use NHANES data."],
             'checkResults': []
@@ -957,64 +831,71 @@ def check_nhanes_manuscript(text, title='Untitled Manuscript'):
         'failStep': 0
     }
 
-    references_header_regex = r'(?im)^\\s*(?:References|Bibliography|Literature Cited|Works Cited)\\s*$'
-    match = re.search(references_header_regex, text)
+    # Truncate text at the first mention of "reference" (case-insensitive)
+    # Using \\b for word boundary - needs quadruple \\\\ in JS string template
+    ref_match = re.search(r'\\breference\\b', text, re.IGNORECASE) 
     text_for_checks = text 
-    if match:
-        text_for_checks = text[:match.start()]
-        js.console.log(f"[Python] 'References' section found. Truncating text for most checks. Original length: {len(text)}, Truncated length: {len(text_for_checks)}")
+    if ref_match:
+        text_for_checks = text[:ref_match.start()]
+        js.console.log(f"[Python] Found 'reference'. Truncating text for checks. Original length: {len(text)}, Truncated length: {len(text_for_checks)}")
     else:
-        js.console.log("[Python] 'References' section not found by regex. Using full text for checks.")
+        js.console.log("[Python] Word 'reference' not found. Using full text for checks.")
     
+    # Lambda function needed for check_author_red_flags as it requires both full and truncated text
     author_red_flags_func = lambda truncated_text_arg: check_author_red_flags(text, truncated_text_arg) 
 
+    # Define the sequence of checks to run (NHANES specific, excluding removed ones)
     checks_definitions = [
-        {"name": "2a. NHANES Citation", "func": check_nhanes_citation, "step": 2, "critical": True},
-        {"name": "2b. Survey Design Acknowledgment", "func": check_survey_design_acknowledgment, "step": 2, "critical": True},
-        {"name": "2c. Weighting Methodology", "func": check_weighting_methodology, "step": 2, "critical": True},
-        {"name": "3. NHANES Date Range Validation", "func": check_nhanes_date_range, "step": 3, "critical": False},
-        {"name": "4. NHANES Cycle Recency (Odd-Even)", "func": check_nhanes_cycle_recency, "step": 4, "critical": False},
-        {"name": "5. Title Template Check", "func": check_title_template, "step": 5, "critical": False},
-        {"name": "6. Author Red Flags", "func": author_red_flags_func, "step": 6, "critical": False}
+        {"name": "NHANES: Date Range Analysis", "func": check_nhanes_date_context_and_validation, "step": 2, "critical": False}, 
+        {"name": "Generic: Title Template Check", "func": check_title_template, "step": 3, "critical": False}, 
+        {"name": "Generic: Author Red Flags", "func": author_red_flags_func, "step": 4, "critical": False} 
     ]
     
-    current_step_num, step_2_overall_passed = 1, True
-    for check_def in checks_definitions:
-        if check_def["step"] > current_step_num:
-            if current_step_num == 2 and not step_2_overall_passed:
-                results['details'].append("✗ STEP 2: Failed one or more critical methodology checks.")
-                results['finalResult'], results['failStep'] = "Fail", 2; break
-            elif results['finalResult'] != "Fail":
-                 results['details'].append(f"✓ STEP {current_step_num}: Check(s) passed or non-critical.")
-            current_step_num = check_def["step"]
+    current_step_num = 1 # Start after initial NHANES mention check
+    overall_passed = True # Assume pass unless a critical check fails (currently none are marked critical)
 
-        check_res = check_def["func"](text_for_checks) 
+    for check_def in checks_definitions:
+        # No need to log step transitions if steps are simple sequence now
+        # if check_def["step"] > current_step_num:
+        #    if results['finalResult'] != "Fail": results['details'].append(f"✓ STEP {current_step_num}: Checks passed.")
+        #    current_step_num = check_def["step"]
+
+        check_res = check_def["func"](text_for_checks) # Pass truncated text
         results['checkResults'].append({'checkName': check_def["name"], **check_res}) 
         
+        # Simplified pass/fail - currently no critical checks defined in the list above
+        # If you make a check critical again, this logic will apply
         if not check_res.get('passed') and not check_res.get('skipped'):
-            if check_def["step"] == 2: step_2_overall_passed = False
-            if check_def["critical"] and check_def["step"] != 2: 
-                results['details'].append(f"✗ STEP {check_def['step']}: Failed critical check \\"{check_def['name']}\\".")
-                results['finalResult'], results['failStep'] = "Fail", check_def["step"]; break
-            elif not check_def["critical"]:
-                results['details'].append(f"⚠️ STEP {check_def['step']}: Non-critical issue in \\"{check_def['name']}\\".")
+            if check_def.get("critical", False): 
+                overall_passed = False
+                results['failStep'] = check_def["step"]
+                # Append failure detail only once per step
+                fail_msg = f"✗ STEP {check_def['step']}: Failed critical check \\"{check_def['name']}\\"."
+                if fail_msg not in results['details']:
+                     results['details'].append(fail_msg)
+                # break # Decide if you want to stop on first critical failure
+            else:
+                 # Append non-critical issue only once per check name if desired
+                 warn_msg = f"⚠️ STEP {check_def['step']}: Non-critical issue in \\"{check_def['name']}\\"."
+                 if warn_msg not in results['details']:
+                      results['details'].append(warn_msg)
 
-    if results['finalResult'] != "Fail": 
-        if current_step_num == 2 and not step_2_overall_passed:
-            results['details'].append("✗ STEP 2: Failed one or more critical methodology checks.")
-            results['finalResult'], results['failStep'] = "Fail", 2
-        elif not any(d.startswith(f"✓ STEP {current_step_num}") for d in results['details']) and \
-             not any(d.startswith(f"✗ STEP {current_step_num}") for d in results['details']):
-             results['details'].append(f"✓ STEP {current_step_num}: Check(s) passed or non-critical.")
-    
-    if results['finalResult'] != "Fail":
-        results['finalResult'] = "Pass"
-        if not any(d.startswith('✗') for d in results['details']):
-             results['details'].append("✓ ALL CHECKS COMPLETED SUCCESSFULLY OR WITH NON-CRITICAL ISSUES.")
-    elif results['failStep'] == 0 and results['isNHANES']:
-        results['failStep'] = current_step_num
-        if not any(d.startswith(f"✗ STEP {results['failStep']}") for d in results['details']):
-            results['details'].append(f"✗ Manuscript check failed overall, refer to Step {results['failStep']} details for specific issues.")
+    # Final result determination
+    if results['finalResult'] == "": # Only set if not already set (e.g., by 'Not NHANES')
+        if overall_passed:
+            results['finalResult'] = "Pass"
+            # Remove generic step pass messages if any existed, add final pass
+            results['details'] = [d for d in results['details'] if not d.startswith("✓ STEP")]
+            results['details'].append("✓ All essential checks passed or had non-critical issues.")
+        else:
+             results['finalResult'] = "Fail"
+             # Remove generic step pass messages if any existed
+             results['details'] = [d for d in results['details'] if not d.startswith("✓ STEP")]
+             if results['failStep'] == 0: results['failStep'] = current_step_num # Assign last step if specific critical fail step wasn't set
+             fail_summary = f"✗ Manuscript failed critical check(s) around Step {results['failStep']}."
+             if fail_summary not in results['details']:
+                 results['details'].append(fail_summary)
+                 
     return results
 
 # --- Event Handlers ---
@@ -1059,7 +940,7 @@ async def handle_file_upload(event_proxy):
             window.NHANESBridge.hideUILoading(False)
             return
         
-        js.console.log(f"[Python] File content retrieved. Length: {len(content) if content else 0}. Preview: {str(content)[:100] if content else 'None'}")
+        js.console.log(f"[Python] File content retrieved. Length: {len(content) if content else 0}.")
         document.getElementById('manuscriptText').value = content
         js.console.log("[Python] Textarea value set.")
         window.NHANESBridge.hideUILoading(True)
@@ -1088,13 +969,13 @@ async def handle_file_upload(event_proxy):
         elif "'str' object is not callable" in error_msg_str:
              error_msg = "Internal error: A function was unexpectedly a string. Check console."
         else:
-            error_msg = f"Error processing file: {error_msg_str}"
+            error_msg = f"Error processing file. Check console for details." # Generic for user
 
-        document.getElementById('manuscriptText').value = error_msg
+        document.getElementById('manuscriptText').value = f"ERROR: {error_msg}"
         js.alert(error_msg)
         window.NHANESBridge.hideUILoading(False)
     finally:
-        if file_input_el: # file_input_el is defined in the scope of handle_file_upload
+        if file_input_el: 
             try:
                 file_input_el.value = '' 
                 js.console.log("[Python] File input cleared.")
@@ -1110,7 +991,7 @@ def handle_check_button(event):
     
     async def run_checks_async():
         try: 
-            check_results_obj = check_nhanes_manuscript(text, "Manuscript")
+            check_results_obj = check_nhanes_manuscript(text, "Manuscript") # Use NHANES specific function
             display_results(check_results_obj)
         except Exception as e:
             py_tb = traceback.format_exc() 
@@ -1134,27 +1015,12 @@ def handle_clear_button(event):
 
 # --- Initialization ---
 def initialize():
-    js.console.log("[Python] Initializing NHANES Checker...")
+    js.console.log("[Python] Initializing NHANES Manuscript Checker...")
     try:
-        js.console.log(f"[Python DEBUG] Type of js.eval in initialize: {type(js.eval)}")
-        js.console.log(f"[Python DEBUG] Type of to_js in initialize: {type(to_js)}")
-        js.console.log(f"[Python DEBUG] Type of js.Object in initialize: {type(js.Object)}")
-        if hasattr(js.Object, "fromEntries"):
-            js.console.log(f"[Python DEBUG] Type of js.Object.fromEntries in initialize: {type(js.Object.fromEntries)}")
-            js.eval("globalThis.pyodideCheckInstance = (obj, constr) => obj instanceof constr;")
-            js.console.log("[Python DEBUG] globalThis.pyodideCheckInstance helper defined.")
-            is_callable_js = js.globalThis.pyodideCheckInstance(js.Object.fromEntries, js.window.Function)
-            js.console.log(f"[Python DEBUG] js.Object.fromEntries is JS Function (via helper): {is_callable_js}")
-        else:
-            js.console.log("[Python DEBUG] js.Object has no 'fromEntries' attr in initialize.")
-        
-        js.eval("1+1") 
-        js.console.log("[Python DEBUG] js.eval test call successful.")
+        js.eval("globalThis.pyodideCheckInstance = (obj, constr) => obj instanceof constr;")
+        #js.console.log("[Python DEBUG] globalThis.pyodideCheckInstance helper defined.") # Optional debug log
     except Exception as e_init_eval:
-        js.console.error(f"[Python DEBUG] Error during initial debug checks: {str(e_init_eval)}")
-        py_tb_init = traceback.format_exc()
-        js.console.error(f"[Python DEBUG] Traceback for init debug error:\\n{py_tb_init}")
-
+        js.console.error(f"[Python DEBUG] Error defining JS helper: {str(e_init_eval)}")
 
     document.getElementById('pyodideLoading').classList.add('hidden'); document.getElementById('appContent').classList.remove('hidden')
     
@@ -1168,6 +1034,7 @@ def initialize():
         def enable_check_if_text_py_callback(event_proxy): 
             text_val = ta.value 
             current_text = text_val.strip()
+            # Need to escape the backslash in the line continuation for JS template literal
             is_placeholder = current_text.startswith("Loading") or \\
                              current_text.startswith("Error") or \\
                              current_text.startswith("Unsupported")
@@ -1179,7 +1046,7 @@ def initialize():
     if cb and ta and not ta.value.strip():
         cb.disabled = True
 
-    js.console.log("[Python] NHANES Checker initialized and ready.")
+    js.console.log("[Python] NHANES Manuscript Checker initialized and ready.")
 
 initialize()
 `;
